@@ -12,7 +12,6 @@ SuperLU.SuperLUOptions
 
 ```@docs
 SuperLU.SuperLUFactorization
-SuperLU.SuperLUGPUFactorization
 SuperLU.SuperLUFactorize
 ```
 
@@ -25,12 +24,6 @@ SuperLU.factorize!
 SuperLU.superlu_solve!
 SuperLU.superlu_solve
 SuperLU.update_matrix!
-```
-
-### GPU Support
-
-```@docs
-SuperLU.is_gpu_available
 ```
 
 ## Enumerations

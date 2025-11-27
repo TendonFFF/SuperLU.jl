@@ -129,46 +129,6 @@ end
     @test norm(A * sol.u - b) < 1e-8
 end
 
-@testitem "GPU availability check" begin
-    using SuperLU
-    
-    # Test that is_gpu_available function works
-    @test is_gpu_available() isa Bool
-    
-    # Without CUDA.jl loaded, GPU should not be available
-    @test is_gpu_available() == false
-end
-
-@testitem "GPU factorization type" begin
-    using SuperLU
-    
-    # Test that SuperLUGPUFactorization can be constructed
-    gpu_fact = SuperLUGPUFactorization()
-    @test gpu_fact.reuse_symbolic == true
-    
-    gpu_fact_no_reuse = SuperLUGPUFactorization(reuse_symbolic=false)
-    @test gpu_fact_no_reuse.reuse_symbolic == false
-end
-
-@testitem "GPU LinearSolve integration (fallback to CPU)" begin
-    using SuperLU
-    using SparseArrays
-    using LinearAlgebra
-    using LinearSolve
-    
-    # Test GPU factorization which should fall back to CPU when no GPU available
-    A = sparse([4.0+1.0im 1.0+0im 0.0; 
-                1.0-1.0im 4.0+2.0im 1.0+0im; 
-                0.0 1.0+1.0im 4.0-1.0im])
-    b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
-    
-    prob = LinearProblem(A, b)
-    # This should work but emit a warning about GPU not being available
-    sol = solve(prob, SuperLUGPUFactorization())
-    
-    @test norm(A * sol.u - b) < 1e-10
-end
-
 @testitem "SuperLUOptions construction" begin
     using SuperLU
     
