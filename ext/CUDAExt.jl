@@ -5,7 +5,7 @@ using CUDA
 using SparseArrays
 
 import SuperLU: SuperLUGPUFactorization, SuperLUFactorize, GPU_AVAILABLE,
-                factorize!, superlu_solve!, update_matrix!
+                factorize!, superlu_solve!, update_matrix!, NOTRANS, trans_t
 
 # Check and set GPU availability
 function __init__()
@@ -73,12 +73,12 @@ function factorize!(F::SuperLUGPUFactorize{Tv}) where Tv
 end
 
 """
-    superlu_solve!(F::SuperLUGPUFactorize, b::AbstractVector; trans=SuperLU.NOTRANS)
+    superlu_solve!(F::SuperLUGPUFactorize, b::AbstractVector; trans=NOTRANS)
 
 Solve the linear system using GPU-accelerated factorization.
 """
 function superlu_solve!(F::SuperLUGPUFactorize{Tv}, b::AbstractVector{Tv};
-                        trans=SuperLU.NOTRANS) where Tv
+                        trans::trans_t=NOTRANS) where Tv
     !F.cpu_factor.factorized && error("Matrix not factorized. Call factorize! first.")
     
     # Use the CPU solve (GPU acceleration is through BLAS)
