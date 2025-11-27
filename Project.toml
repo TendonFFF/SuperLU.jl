@@ -10,15 +10,12 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SuperLU_jll = "f391fee2-5786-5cc9-9662-0e362ec949e2"
 
 [weakdeps]
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 
 [extensions]
-CUDAExt = "CUDA"
 LinearSolveExt = ["LinearSolve", "SciMLBase"]
 
 [compat]
-CUDA = "5"
 LinearSolve = "3"
 SciMLBase = "2"
 SuperLU_jll = "5"
