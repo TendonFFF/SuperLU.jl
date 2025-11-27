@@ -24,6 +24,12 @@ end
 A GPU-accelerated factorization object for SuperLU.
 Uses CUDA for accelerating dense operations during the factorization phase.
 
+# Fields
+- `cpu_factor::SuperLUFactorize{Tv}`: The underlying CPU factorization object that holds
+  the sparse matrix data and performs the actual LU factorization via SuperLU.
+- `gpu_initialized::Bool`: Flag indicating whether GPU resources have been allocated
+  and the factorization has been performed. Set to `true` after `factorize!` is called.
+
 !!! note
     The current implementation uses the CPU-based SuperLU library for the
     sparse factorization, with CUDA acceleration for dense intermediate
@@ -31,10 +37,11 @@ Uses CUDA for accelerating dense operations during the factorization phase.
     in a future release when GPU-enabled SuperLU binaries become available.
 """
 mutable struct SuperLUGPUFactorize{Tv<:Complex}
-    # The underlying CPU factorization object
+    # The underlying CPU factorization object that holds the sparse matrix
+    # and performs LU factorization via SuperLU
     cpu_factor::SuperLUFactorize{Tv}
     
-    # Flag to track if GPU resources are allocated
+    # Flag indicating GPU resources are allocated and factorization is done
     gpu_initialized::Bool
     
     function SuperLUGPUFactorize{Tv}(A::SparseMatrixCSC{Tv, Ti}) where {Tv<:Complex, Ti<:Integer}

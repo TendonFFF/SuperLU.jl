@@ -159,6 +159,30 @@ when CUDA.jl is loaded.
     SuperLUGPUCache
 
 Internal cache structure for GPU-accelerated SuperLU factorization with LinearSolve.
+
+This cache manages the lifecycle of GPU factorization objects when using LinearSolve.jl.
+It tracks whether GPU acceleration is actually available and enabled.
+
+# Fields
+- `fact::Union{Nothing, SuperLUFactorize{Tv}}`: The underlying factorization object.
+  Uses the CPU SuperLUFactorize as the base, with GPU acceleration applied through
+  CUDA-enabled BLAS operations when available.
+- `reuse_symbolic::Bool`: Whether to reuse symbolic factorization when the matrix
+  sparsity pattern remains the same between solves.
+- `first_solve::Bool`: Tracks if this is the first solve after cache initialization.
+  Used to avoid redundant re-factorization on the first solve! call.
+- `gpu_enabled::Bool`: Indicates if GPU acceleration is actually being used.
+  Set based on `is_gpu_available()` at cache creation time.
+
+# Cache Lifecycle
+1. Created via `init_cacheval` with GPU availability check
+2. First solve uses pre-computed factorization (`first_solve=true`)
+3. Subsequent solves check `isfresh` flag for re-factorization needs
+4. If `reuse_symbolic=true` and pattern unchanged, updates values only
+
+Note: SuperLU internally works with complex numbers (ComplexF64). Real matrices
+are converted to complex format, as this is required by the SuperLU library's
+complex solver routines used in this package.
 """
 mutable struct SuperLUGPUCache{Tv}
     fact::Union{Nothing, SuperLUFactorize{Tv}}  # Uses CPU fact as base
