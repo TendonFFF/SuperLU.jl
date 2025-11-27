@@ -1,18 +1,14 @@
-module LinearSolveExt
+# LinearSolve.jl integration for SuperLU
+# This provides a SuperLUFactorization algorithm that can be used with LinearSolve.jl
 
-using SuperLU
 using LinearSolve
 using SciMLBase
-using SparseArrays
 
-import SuperLU: SuperLUFactorize, SuperLUTypes,
-                factorize!, superlu_solve!, update_matrix!, SuperLUOptions
 import LinearSolve: LinearCache, AbstractFactorization, 
                     init_cacheval, do_factorization, needs_concrete_A,
                     LinearVerbosity, OperatorAssumptions
 
-# Define SuperLUFactorization as a proper subtype of AbstractFactorization
-@doc raw"""
+"""
     SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
 
 A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
@@ -173,14 +169,3 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
     return SciMLBase.build_linear_solution(alg, cache.u, nothing, cache; 
                                            retcode=SciMLBase.ReturnCode.Success)
 end
-
-# Make SuperLUFactorization available in the SuperLU module's namespace
-# This allows users to use SuperLU.SuperLUFactorization() after loading LinearSolve
-function __init__()
-    @eval SuperLU begin
-        const SuperLUFactorization = $SuperLUFactorization
-        export SuperLUFactorization
-    end
-end
-
-end # module
