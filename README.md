@@ -1,5 +1,8 @@
 # SuperLU.jl
 
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://TendonFFF.github.io/SuperLU.jl/stable)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://TendonFFF.github.io/SuperLU.jl/dev)
+
 A Julia interface for [SuperLU](https://portal.nersc.gov/project/sparse/superlu/), a library for direct solution of large, sparse, non-symmetric systems of linear equations.
 
 ## Features
