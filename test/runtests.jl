@@ -280,3 +280,182 @@ end
     
     @test norm(A * sol.u - b) < 1e-10
 end
+
+@testitem "Float64 direct solve" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a real double precision matrix
+    A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = [1.0, 2.0, 3.0]
+    
+    # Test direct interface with Float64
+    F = SuperLU.SuperLUFactorize(A)
+    SuperLU.factorize!(F)
+    x = copy(b)
+    SuperLU.superlu_solve!(F, x)
+    
+    @test norm(A * x - b) < 1e-10
+end
+
+@testitem "Float32 direct solve" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a real single precision matrix
+    A = sparse(Float32[4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = Float32[1.0, 2.0, 3.0]
+    
+    # Test direct interface with Float32
+    F = SuperLU.SuperLUFactorize(A)
+    SuperLU.factorize!(F)
+    x = copy(b)
+    SuperLU.superlu_solve!(F, x)
+    
+    @test norm(A * x - b) < 1e-5
+end
+
+@testitem "ComplexF32 direct solve" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a complex single precision matrix
+    A = sparse(ComplexF32[4.0+1.0im 1.0+0im 0.0; 
+                          1.0-1.0im 4.0+2.0im 1.0+0im; 
+                          0.0 1.0+1.0im 4.0-1.0im])
+    b = ComplexF32[1.0+0im, 2.0+1.0im, 3.0-1.0im]
+    
+    # Test direct interface with ComplexF32
+    F = SuperLU.SuperLUFactorize(A)
+    SuperLU.factorize!(F)
+    x = copy(b)
+    SuperLU.superlu_solve!(F, x)
+    
+    @test norm(A * x - b) < 1e-5
+end
+
+@testitem "Float64 LinearSolve integration" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    using LinearSolve
+    
+    # Create a real double precision matrix
+    A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = [1.0, 2.0, 3.0]
+    
+    # Test with LinearSolve - Float64 should work directly now
+    prob = LinearProblem(A, b)
+    sol = solve(prob, SuperLUFactorization())
+    
+    @test norm(A * sol.u - b) < 1e-10
+end
+
+@testitem "Preset options" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = [1.0, 2.0, 3.0]
+    
+    # Test ILL_CONDITIONED_OPTIONS
+    @test ILL_CONDITIONED_OPTIONS.equilibrate == true
+    @test ILL_CONDITIONED_OPTIONS.iterative_refinement == SLU_EXTRA
+    @test ILL_CONDITIONED_OPTIONS.replace_tiny_pivot == true
+    
+    F1 = SuperLU.SuperLUFactorize(A; options=ILL_CONDITIONED_OPTIONS)
+    SuperLU.factorize!(F1)
+    x1 = copy(b)
+    SuperLU.superlu_solve!(F1, x1)
+    @test norm(A * x1 - b) < 1e-10
+    
+    # Test PERFORMANCE_OPTIONS
+    @test PERFORMANCE_OPTIONS.equilibrate == false
+    @test PERFORMANCE_OPTIONS.iterative_refinement == NOREFINE
+    @test PERFORMANCE_OPTIONS.row_perm == NOROWPERM
+    
+    F2 = SuperLU.SuperLUFactorize(A; options=PERFORMANCE_OPTIONS)
+    SuperLU.factorize!(F2)
+    x2 = copy(b)
+    SuperLU.superlu_solve!(F2, x2)
+    @test norm(A * x2 - b) < 1e-10
+    
+    # Test ACCURACY_OPTIONS
+    @test ACCURACY_OPTIONS.iterative_refinement == SLU_DOUBLE
+    @test ACCURACY_OPTIONS.col_perm == MMD_AT_PLUS_A
+    
+    F3 = SuperLU.SuperLUFactorize(A; options=ACCURACY_OPTIONS)
+    SuperLU.factorize!(F3)
+    x3 = copy(b)
+    SuperLU.superlu_solve!(F3, x3)
+    @test norm(A * x3 - b) < 1e-10
+    
+    # Test SYMMETRIC_OPTIONS
+    @test SYMMETRIC_OPTIONS.symmetric_mode == true
+    @test SYMMETRIC_OPTIONS.col_perm == MMD_AT_PLUS_A
+    
+    F4 = SuperLU.SuperLUFactorize(A; options=SYMMETRIC_OPTIONS)
+    SuperLU.factorize!(F4)
+    x4 = copy(b)
+    SuperLU.superlu_solve!(F4, x4)
+    @test norm(A * x4 - b) < 1e-10
+end
+
+@testitem "Symmetry checking" begin
+    using SuperLU
+    using SparseArrays
+    
+    # Symmetric matrix (both structure and values)
+    A_sym = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    @test issymmetric_structure(A_sym) == true
+    @test issymmetric_approx(A_sym) == true
+    
+    # Asymmetric structure
+    A_asym_struct = sparse([4.0 1.0 0.0; 0.0 4.0 1.0; 0.0 1.0 4.0])
+    @test issymmetric_structure(A_asym_struct) == false
+    @test issymmetric_approx(A_asym_struct) == false
+    
+    # Symmetric structure but asymmetric values
+    A_sym_struct = sparse([4.0 1.0 0.0; 2.0 4.0 1.0; 0.0 1.0 4.0])
+    @test issymmetric_structure(A_sym_struct) == true
+    @test issymmetric_approx(A_sym_struct) == false
+    
+    # Non-square matrix
+    A_rect = sparse([4.0 1.0; 1.0 4.0; 0.0 1.0])
+    @test issymmetric_structure(A_rect) == false
+    
+    # Complex Hermitian matrix
+    A_herm = sparse([4.0+0im 1.0+1.0im 0.0; 
+                     1.0-1.0im 4.0+0im 1.0+1.0im; 
+                     0.0 1.0-1.0im 4.0+0im])
+    @test issymmetric_structure(A_herm) == true
+    @test ishermitian_approx(A_herm) == true
+    
+    # Test suggest_options
+    opts = suggest_options(A_sym)
+    @test opts.col_perm == MMD_AT_PLUS_A
+    @test opts.symmetric_mode == true
+end
+
+@testitem "Larger real system" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    using LinearSolve
+    
+    n = 100
+    # Create a sparse diagonally dominant real matrix
+    A = spdiagm(-1 => fill(-1.0, n-1), 
+                 0 => fill(4.0, n), 
+                 1 => fill(-1.0, n-1))
+    b = randn(n)
+    
+    prob = LinearProblem(A, b)
+    sol = solve(prob, SuperLUFactorization())
+    
+    @test norm(A * sol.u - b) < 1e-8
+end

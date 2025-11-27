@@ -184,6 +184,88 @@ prob = LinearProblem(A, b)
 sol = solve(prob, SuperLUFactorization(options = opts))
 ```
 
+## Preset Options
+
+SuperLU.jl provides pre-configured option objects for common use cases, so you don't need to manually configure each option.
+
+### ILL_CONDITIONED_OPTIONS
+
+Optimized for solving ill-conditioned systems:
+
+```julia
+using SuperLU
+using SparseArrays
+
+A = sparse([4.0 1.0; 1.0 4.0])
+b = [1.0, 2.0]
+
+F = SuperLUFactorize(A; options=ILL_CONDITIONED_OPTIONS)
+factorize!(F)
+x = superlu_solve(F, b)
+```
+
+### PERFORMANCE_OPTIONS
+
+Optimized for maximum performance (use only for well-conditioned systems):
+
+```julia
+F = SuperLUFactorize(A; options=PERFORMANCE_OPTIONS)
+```
+
+### ACCURACY_OPTIONS
+
+Optimized for maximum accuracy:
+
+```julia
+F = SuperLUFactorize(A; options=ACCURACY_OPTIONS)
+```
+
+### SYMMETRIC_OPTIONS
+
+Optimized for symmetric or nearly symmetric matrices:
+
+```julia
+# Check if matrix has symmetric structure
+if issymmetric_structure(A)
+    F = SuperLUFactorize(A; options=SYMMETRIC_OPTIONS)
+end
+```
+
+## Matrix Symmetry Checking
+
+SuperLU.jl provides utility functions to analyze matrix symmetry and suggest appropriate options.
+
+### Checking Sparsity Pattern Symmetry
+
+```julia
+using SuperLU
+using SparseArrays
+
+A_sym = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+issymmetric_structure(A_sym)  # true
+
+A_asym = sparse([4.0 1.0 0.0; 0.0 4.0 1.0; 0.0 1.0 4.0])
+issymmetric_structure(A_asym)  # false (no entry at (2,1))
+```
+
+### Checking Value Symmetry
+
+```julia
+# Check if values are approximately symmetric (for real matrices)
+issymmetric_approx(A_sym)  # true
+
+# Check if values are approximately Hermitian (for complex matrices)
+ishermitian_approx(A_complex)
+```
+
+### Automatic Option Suggestion
+
+```julia
+# Analyze matrix and get suggested options
+opts = suggest_options(A)
+F = SuperLUFactorize(A; options=opts)
+```
+
 ## Recommended Settings
 
 ### General Purpose
@@ -199,17 +281,21 @@ opts = SuperLUOptions(
     equilibrate = false,
     iterative_refinement = NOREFINE
 )
+# Or use the preset:
+opts = PERFORMANCE_OPTIONS
 ```
 
 ### Maximum Accuracy
 ```julia
 opts = SuperLUOptions(
-    col_perm = METIS_AT_PLUS_A,
+    col_perm = MMD_AT_PLUS_A,
     row_perm = LargeDiag_MC64,
     equilibrate = true,
     iterative_refinement = SLU_DOUBLE,
     diag_pivot_thresh = 1.0
 )
+# Or use the preset:
+opts = ACCURACY_OPTIONS
 ```
 
 ### Ill-Conditioned Matrices
@@ -220,4 +306,6 @@ opts = SuperLUOptions(
     replace_tiny_pivot = true,
     condition_number = true  # To monitor the condition
 )
+# Or use the preset:
+opts = ILL_CONDITIONED_OPTIONS
 ```
