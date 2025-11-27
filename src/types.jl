@@ -397,7 +397,7 @@ function SuperLUOptions(;
     )
 end
 
-# Note: apply_options! is defined below after superlu_options_t
+# apply_options! function is defined after superlu_options_t struct below
 
 # ============================================================================
 # Internal SuperLU Structures

@@ -168,3 +168,87 @@ end
     
     @test norm(A * sol.u - b) < 1e-10
 end
+
+@testitem "SuperLUOptions construction" begin
+    using SuperLU
+    
+    # Test default options
+    opts = SuperLUOptions()
+    @test opts.col_perm == COLAMD
+    @test opts.row_perm == LargeDiag_MC64
+    @test opts.equilibrate == true
+    @test opts.diag_pivot_thresh == 1.0
+    @test opts.symmetric_mode == false
+    @test opts.iterative_refinement == NOREFINE
+    @test opts.pivot_growth == false
+    @test opts.condition_number == false
+    @test opts.print_stats == false
+    @test opts.replace_tiny_pivot == false
+    
+    # Test custom options
+    opts2 = SuperLUOptions(
+        col_perm = METIS_AT_PLUS_A,
+        row_perm = NOROWPERM,
+        equilibrate = false,
+        diag_pivot_thresh = 0.5,
+        symmetric_mode = true,
+        iterative_refinement = SLU_DOUBLE
+    )
+    @test opts2.col_perm == METIS_AT_PLUS_A
+    @test opts2.row_perm == NOROWPERM
+    @test opts2.equilibrate == false
+    @test opts2.diag_pivot_thresh == 0.5
+    @test opts2.symmetric_mode == true
+    @test opts2.iterative_refinement == SLU_DOUBLE
+    
+    # Test invalid diag_pivot_thresh
+    @test_throws ArgumentError SuperLUOptions(diag_pivot_thresh = -0.1)
+    @test_throws ArgumentError SuperLUOptions(diag_pivot_thresh = 1.5)
+end
+
+@testitem "Solve with custom options" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    A = sparse([4.0+1.0im 1.0+0im 0.0; 
+                1.0-1.0im 4.0+2.0im 1.0+0im; 
+                0.0 1.0+1.0im 4.0-1.0im])
+    b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
+    
+    # Test with custom options
+    opts = SuperLUOptions(
+        col_perm = MMD_AT_PLUS_A,
+        equilibrate = true
+    )
+    
+    F = SuperLU.SuperLUFactorize(A; options=opts)
+    SuperLU.factorize!(F)
+    x = copy(b)
+    SuperLU.superlu_solve!(F, x)
+    
+    @test norm(A * x - b) < 1e-10
+end
+
+@testitem "LinearSolve with custom options" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    using LinearSolve
+    
+    A = sparse([4.0+1.0im 1.0+0im 0.0; 
+                1.0-1.0im 4.0+2.0im 1.0+0im; 
+                0.0 1.0+1.0im 4.0-1.0im])
+    b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
+    
+    # Test with custom options via LinearSolve
+    opts = SuperLUOptions(
+        col_perm = MMD_AT_PLUS_A,
+        iterative_refinement = SLU_DOUBLE
+    )
+    
+    prob = LinearProblem(A, b)
+    sol = solve(prob, SuperLUFactorization(options=opts))
+    
+    @test norm(A * sol.u - b) < 1e-10
+end
