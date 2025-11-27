@@ -39,4 +39,10 @@ export IterRefine_t, NOREFINE, SLU_SINGLE, SLU_DOUBLE, SLU_EXTRA
 # Export yes/no enum for checking options
 export yes_no_t, YES, NO
 
+# Include LinearSolve.jl integration
+include("linearsolve.jl")
+
+# Export LinearSolve-compatible type
+export SuperLUFactorization
+
 end # module
