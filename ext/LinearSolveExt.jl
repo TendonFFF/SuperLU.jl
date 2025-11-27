@@ -5,12 +5,14 @@ using LinearSolve
 using SciMLBase
 using SparseArrays
 
-import SuperLU: SuperLUFactorization, SuperLUFactorize, factorize!, superlu_solve!, update_matrix!
+import SuperLU: SuperLUFactorization, SuperLUGPUFactorization, SuperLUFactorize, 
+                factorize!, superlu_solve!, update_matrix!
 import LinearSolve: LinearCache, AbstractFactorization, 
                     init_cacheval, do_factorization, needs_concrete_A
 
 # Indicate we need a concrete matrix (not lazy representations)
 LinearSolve.needs_concrete_A(::SuperLUFactorization) = true
+LinearSolve.needs_concrete_A(::SuperLUGPUFactorization) = true
 
 """
     SuperLUCache
@@ -133,6 +135,141 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
     # Solve the system
     b_complex = eltype(b) <: Complex ? copy(b) : ComplexF64.(b)
     superlu_solve!(slu_cache.fact, b_complex)
+    
+    # Copy result to u
+    if eltype(cache.u) <: Complex
+        copyto!(cache.u, b_complex)
+    else
+        copyto!(cache.u, real.(b_complex))
+    end
+    
+    return SciMLBase.build_linear_solution(alg, cache.u, nothing, cache; 
+                                           retcode=SciMLBase.ReturnCode.Success)
+end
+
+#=
+GPU Factorization Support
+
+The following code provides LinearSolve.jl integration for GPU-accelerated SuperLU.
+The actual GPU implementation is in the CUDAExt extension and will only be available
+when CUDA.jl is loaded.
+=#
+
+"""
+    SuperLUGPUCache
+
+Internal cache structure for GPU-accelerated SuperLU factorization with LinearSolve.
+"""
+mutable struct SuperLUGPUCache{Tv}
+    fact::Union{Nothing, SuperLUFactorize{Tv}}  # Uses CPU fact as base
+    reuse_symbolic::Bool
+    first_solve::Bool
+    gpu_enabled::Bool  # Track if GPU is actually being used
+end
+
+# GPU init_cacheval - falls back to CPU if GPU not available
+function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
+                                    A::SparseMatrixCSC{Tv, Ti}, 
+                                    b, u, Pl, Pr, maxiters::Int, 
+                                    abstol, reltol, verbose::Bool, 
+                                    assumptions) where {Tv<:Complex, Ti<:Integer}
+    gpu_enabled = SuperLU.is_gpu_available()
+    if !gpu_enabled
+        @warn "GPU not available, falling back to CPU factorization"
+    end
+    
+    F = SuperLUFactorize(A)
+    factorize!(F)
+    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, true, gpu_enabled)
+end
+
+function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
+                                    A::SparseMatrixCSC{Tv, Ti}, 
+                                    b, u, Pl, Pr, maxiters::Int, 
+                                    abstol, reltol, verbose::Bool, 
+                                    assumptions) where {Tv<:Real, Ti<:Integer}
+    Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
+    return LinearSolve.init_cacheval(alg, Ac, b, u, Pl, Pr, maxiters, 
+                                      abstol, reltol, verbose, assumptions)
+end
+
+function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
+                                    A::AbstractMatrix{Tv}, 
+                                    b, u, Pl, Pr, maxiters::Int, 
+                                    abstol, reltol, verbose::Bool, 
+                                    assumptions) where {Tv}
+    As = sparse(A)
+    return LinearSolve.init_cacheval(alg, As, b, u, Pl, Pr, maxiters, 
+                                      abstol, reltol, verbose, assumptions)
+end
+
+# GPU do_factorization
+function LinearSolve.do_factorization(alg::SuperLUGPUFactorization, 
+                                       A::SparseMatrixCSC{Tv, Ti}, 
+                                       b, u) where {Tv<:Complex, Ti<:Integer}
+    gpu_enabled = SuperLU.is_gpu_available()
+    F = SuperLUFactorize(A)
+    factorize!(F)
+    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, false, gpu_enabled)
+end
+
+function LinearSolve.do_factorization(alg::SuperLUGPUFactorization, 
+                                       A::SparseMatrixCSC{Tv, Ti}, 
+                                       b, u) where {Tv<:Real, Ti<:Integer}
+    Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
+    return LinearSolve.do_factorization(alg, Ac, b, u)
+end
+
+function LinearSolve.do_factorization(alg::SuperLUGPUFactorization, 
+                                       A::AbstractMatrix, b, u)
+    As = sparse(A)
+    return LinearSolve.do_factorization(alg, As, b, u)
+end
+
+# GPU solve function
+function SciMLBase.solve!(cache::LinearCache, alg::SuperLUGPUFactorization; 
+                          kwargs...)
+    A = cache.A
+    b = cache.b
+    
+    cacheval = cache.cacheval
+    
+    if cacheval === nothing
+        cacheval = LinearSolve.init_cacheval(alg, A, b, cache.u, 
+                                              cache.Pl, cache.Pr, 
+                                              cache.maxiters, cache.abstol, 
+                                              cache.reltol, cache.verbose, 
+                                              cache.assumptions)
+        cache.cacheval = cacheval
+        cache.isfresh = false
+    end
+    
+    gpu_cache = cacheval::SuperLUGPUCache
+    
+    if cache.isfresh
+        if gpu_cache.first_solve
+            gpu_cache.first_solve = false
+        else
+            A_sparse = A isa SparseMatrixCSC ? A : sparse(A)
+            A_complex = eltype(A_sparse) <: Complex ? A_sparse : 
+                        SparseMatrixCSC{ComplexF64, eltype(A_sparse.colptr)}(A_sparse)
+            
+            if gpu_cache.reuse_symbolic && gpu_cache.fact !== nothing && 
+               size(A_complex, 1) == gpu_cache.fact.n && 
+               length(A_complex.nzval) == gpu_cache.fact.nnz
+                update_matrix!(gpu_cache.fact, A_complex)
+                factorize!(gpu_cache.fact)
+            else
+                gpu_cache.fact = SuperLUFactorize(A_complex)
+                factorize!(gpu_cache.fact)
+            end
+        end
+        cache.isfresh = false
+    end
+    
+    # Solve the system
+    b_complex = eltype(b) <: Complex ? copy(b) : ComplexF64.(b)
+    superlu_solve!(gpu_cache.fact, b_complex)
     
     # Copy result to u
     if eltype(cache.u) <: Complex
