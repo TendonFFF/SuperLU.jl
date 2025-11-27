@@ -17,3 +17,7 @@ Manifest.toml
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Documentation build artifacts
+docs/build/
+docs/Manifest.toml

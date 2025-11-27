@@ -96,7 +96,7 @@ is_gpu_available() = GPU_AVAILABLE[]
 
 # Export main types and functions
 export SuperLUFactorization, SuperLUGPUFactorization
-export SuperLUFactorize, factorize!, superlu_solve!, update_matrix!
+export SuperLUFactorize, factorize!, superlu_solve!, superlu_solve, update_matrix!
 export is_gpu_available
 # Export trans_t enum for use in extensions
 export trans_t, NOTRANS, TRANS, CONJ
