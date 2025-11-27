@@ -29,7 +29,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv<:Complex, Ti<:Integer}
     # Create factorization object and perform initial factorization
     F = SuperLUFactorize(A)
@@ -41,7 +41,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv<:Real, Ti<:Integer}
     # Convert to complex
     Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
@@ -54,7 +54,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::AbstractMatrix{Tv}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv}
     As = sparse(A)
     return LinearSolve.init_cacheval(alg, As, b, u, Pl, Pr, maxiters, 
@@ -195,7 +195,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv<:Complex, Ti<:Integer}
     gpu_enabled = SuperLU.is_gpu_available()
     if !gpu_enabled
@@ -210,7 +210,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv<:Real, Ti<:Integer}
     Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
     return LinearSolve.init_cacheval(alg, Ac, b, u, Pl, Pr, maxiters, 
@@ -220,7 +220,7 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
                                     A::AbstractMatrix{Tv}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose::Bool, 
+                                    abstol, reltol, verbose, 
                                     assumptions) where {Tv}
     As = sparse(A)
     return LinearSolve.init_cacheval(alg, As, b, u, Pl, Pr, maxiters, 
