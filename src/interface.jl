@@ -293,6 +293,27 @@ end
 # Matrix symmetry checking utilities
 # ============================================================================
 
+# Helper function to check if a row index exists in a column using binary search
+# Returns the index if found, or 0 if not found
+function _find_row_in_col(A::SparseMatrixCSC, col::Int, target_row::Int)
+    start_idx = A.colptr[col]
+    end_idx = A.colptr[col+1] - 1
+    
+    # Binary search for target_row in the sorted rowval array
+    while start_idx <= end_idx
+        mid = (start_idx + end_idx) ÷ 2
+        mid_row = A.rowval[mid]
+        if mid_row == target_row
+            return mid
+        elseif mid_row < target_row
+            start_idx = mid + 1
+        else
+            end_idx = mid - 1
+        end
+    end
+    return 0
+end
+
 """
     issymmetric_structure(A::SparseMatrixCSC) -> Bool
 
@@ -300,25 +321,23 @@ Check if a sparse matrix has symmetric sparsity structure (A[i,j] ≠ 0 ⟺ A[j,
 This is useful for selecting appropriate column permutation strategies.
 
 Note: This only checks the sparsity pattern, not the values.
+
+Complexity: O(nnz * log(max_column_size)) due to binary search.
 """
 function issymmetric_structure(A::SparseMatrixCSC)
     m, n = size(A)
     m != n && return false
     
-    # For each non-zero entry (i, j), check if (j, i) also exists
+    # For each non-zero entry (row, col), check if (col, row) also exists
+    # Use binary search since row indices are sorted within each column
     for col in 1:n
         for idx in A.colptr[col]:(A.colptr[col+1]-1)
             row = A.rowval[idx]
             if row != col  # Skip diagonal
-                # Check if (col, row) exists
-                found = false
-                for idx2 in A.colptr[row]:(A.colptr[row+1]-1)
-                    if A.rowval[idx2] == col
-                        found = true
-                        break
-                    end
+                # Check if (col, row) exists using binary search
+                if _find_row_in_col(A, row, col) == 0
+                    return false
                 end
-                !found && return false
             end
         end
     end
@@ -332,6 +351,8 @@ Check if a sparse matrix is approximately Hermitian (A ≈ A').
 For real matrices, this is equivalent to checking symmetry.
 
 Returns `true` if for all (i,j): |A[i,j] - conj(A[j,i])| ≤ rtol * max(|A[i,j]|, |A[j,i]|)
+
+Complexity: O(nnz * log(max_column_size)) due to binary search.
 """
 function ishermitian_approx(A::SparseMatrixCSC{Tv}; rtol::Real=1e-10) where Tv
     m, n = size(A)
@@ -342,14 +363,9 @@ function ishermitian_approx(A::SparseMatrixCSC{Tv}; rtol::Real=1e-10) where Tv
             row = A.rowval[idx]
             val = A.nzval[idx]
             
-            # Find the corresponding (col, row) entry
-            val_transpose = zero(Tv)
-            for idx2 in A.colptr[row]:(A.colptr[row+1]-1)
-                if A.rowval[idx2] == col
-                    val_transpose = A.nzval[idx2]
-                    break
-                end
-            end
+            # Find the corresponding (col, row) entry using binary search
+            idx2 = _find_row_in_col(A, row, col)
+            val_transpose = idx2 > 0 ? A.nzval[idx2] : zero(Tv)
             
             # Check Hermitian condition
             diff = abs(val - conj(val_transpose))

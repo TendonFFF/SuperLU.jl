@@ -11,6 +11,42 @@ const libsuperlu = SuperLU_jll.libsuperlu
     SuperLUTypes
 
 Union of all element types supported by SuperLU: Float32, Float64, ComplexF32, ComplexF64.
+
+## Supported Types
+
+- `Float32`: Single precision real. Fastest, least accurate. Use for large problems 
+  where single precision is sufficient.
+- `Float64`: Double precision real. Good balance of speed and accuracy. 
+  Recommended for most real-valued problems.
+- `ComplexF32`: Single precision complex. Use for complex problems where single 
+  precision is sufficient.
+- `ComplexF64`: Double precision complex. Recommended for most complex-valued problems.
+
+## Performance Considerations
+
+- Single precision types (`Float32`, `ComplexF32`) use half the memory and may be 
+  faster on some hardware, but have reduced numerical precision.
+- Double precision types (`Float64`, `ComplexF64`) offer approximately 15-16 significant 
+  digits vs 6-7 for single precision.
+- The choice of precision affects both the factorization and solve phases.
+
+## Example
+
+```julia
+using SuperLU, SparseArrays
+
+# Float64 (double precision real)
+A_d = sparse([4.0 1.0; 1.0 4.0])
+F_d = SuperLUFactorize(A_d)
+
+# Float32 (single precision real)  
+A_s = sparse(Float32[4.0 1.0; 1.0 4.0])
+F_s = SuperLUFactorize(A_s)
+
+# ComplexF64 (double precision complex)
+A_z = sparse([4.0+1.0im 1.0; 1.0 4.0+1.0im])
+F_z = SuperLUFactorize(A_z)
+```
 """
 const SuperLUTypes = Union{Float32, Float64, ComplexF32, ComplexF64}
 
