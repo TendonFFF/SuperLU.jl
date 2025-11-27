@@ -112,11 +112,15 @@ function factorize!(F::SuperLUFactorize{Tv}) where Tv
     
     # Perform factorization
     info = Ref{Cint}(0)
-    zgssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
-           F.L, F.U, B_mat, stat, info)
-    
-    # Clean up statistics
-    StatFree!(stat)
+    try
+        zgssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
+               F.L, F.U, B_mat, stat, info)
+    finally
+        # Clean up temporary B matrix
+        Destroy_SuperMatrix_Store!(B_mat)
+        # Clean up statistics
+        StatFree!(stat)
+    end
     
     if info[] != 0
         if info[] < 0
@@ -154,11 +158,15 @@ function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv};
     
     # Solve
     info = Ref{Cint}(0)
-    zgstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
-            B_mat, stat, info)
-    
-    # Clean up
-    StatFree!(stat)
+    try
+        zgstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
+                B_mat, stat, info)
+    finally
+        # Clean up temporary B matrix
+        Destroy_SuperMatrix_Store!(B_mat)
+        # Clean up statistics
+        StatFree!(stat)
+    end
     
     if info[] != 0
         error("SuperLU solve failed with info = $(info[])")

@@ -1,5 +1,8 @@
 # Low-level C wrappers for SuperLU functions
 
+# Reference to the SuperLU library
+const libsuperlu = SuperLU_jll.libsuperlu
+
 # Set default options - pass the mutable struct directly
 function set_default_options!(options::superlu_options_t)
     ccall((:set_default_options, libsuperlu), Cvoid,

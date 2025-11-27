@@ -103,5 +103,3 @@ using LinearSolve
         @test norm(A * sol.u - b) < 1e-8
     end
 end
-
-println("All tests passed!")
