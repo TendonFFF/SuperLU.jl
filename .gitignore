@@ -1,0 +1,19 @@
+# Julia manifest file (dependencies will be resolved on install)
+Manifest.toml
+
+# Julia local environment
+.julia/
+
+# Build artifacts
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Editor backup files
+*~
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
