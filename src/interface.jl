@@ -6,6 +6,33 @@
 A mutable struct that holds the LU factorization of a sparse matrix using SuperLU.
 This includes the L and U factors, permutation vectors, and other data needed
 for solving linear systems.
+
+# Fields
+- `n::Int`: Matrix dimension
+- `nnz::Int`: Number of non-zeros
+- `factorized::Bool`: Whether factorization has been performed
+- `symbolic_done::Bool`: Whether symbolic factorization is complete
+
+# Constructor
+    SuperLUFactorize(A::SparseMatrixCSC{ComplexF64}; options::SuperLUOptions=SuperLUOptions())
+
+Create a new factorization object for the sparse matrix `A`.
+
+# Arguments
+- `A`: Sparse matrix to factorize (must be square)
+- `options`: Solver options (see [`SuperLUOptions`](@ref))
+
+# Example
+```julia
+using SuperLU, SparseArrays
+
+A = sparse([1.0+1.0im 2.0+0im; 3.0-1.0im 4.0+2.0im])
+F = SuperLUFactorize(A)
+factorize!(F)
+x = superlu_solve(F, [1.0+0im, 2.0+1.0im])
+```
+
+See also: [`SuperLUOptions`](@ref), [`factorize!`](@ref), [`superlu_solve!`](@ref)
 """
 mutable struct SuperLUFactorize{Tv<:Complex}
     # Original matrix info
@@ -30,6 +57,9 @@ mutable struct SuperLUFactorize{Tv<:Complex}
     # Options
     options::superlu_options_t
     
+    # User options (for reference)
+    user_options::SuperLUOptions
+    
     # Global LU data
     Glu::GlobalLU_t
     
@@ -42,7 +72,8 @@ mutable struct SuperLUFactorize{Tv<:Complex}
     factorized::Bool
     symbolic_done::Bool
     
-    function SuperLUFactorize{Tv}(A::SparseMatrixCSC{Tv, Ti}) where {Tv<:Complex, Ti<:Integer}
+    function SuperLUFactorize{Tv}(A::SparseMatrixCSC{Tv, Ti}; 
+                                   options::SuperLUOptions=SuperLUOptions()) where {Tv<:Complex, Ti<:Integer}
         n = size(A, 1)
         m = size(A, 2)
         n != m && throw(DimensionMismatch("Matrix must be square"))
@@ -73,22 +104,24 @@ mutable struct SuperLUFactorize{Tv<:Complex}
         C = ones(Cdouble, n)
         equed = Cchar['N']
         
-        # Set default options
-        options = set_default_options()
+        # Set default options and apply user options
+        c_options = set_default_options()
+        apply_options!(c_options, options)
         
         # Global LU
         Glu = GlobalLU_t()
         
         new{Tv}(n, nnz, A_mat, L_mat, U_mat, 
                 perm_c, perm_r, etree, R, C, equed,
-                options, Glu,
+                c_options, options, Glu,
                 nzval, rowind, colptr,
                 false, false)
     end
 end
 
 # Constructor for ComplexF64 (default)
-SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}) where Ti = SuperLUFactorize{ComplexF64}(A)
+SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
+    SuperLUFactorize{ComplexF64}(A; options=options)
 
 """
     factorize!(F::SuperLUFactorize)

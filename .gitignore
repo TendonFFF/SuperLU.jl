@@ -9,6 +9,10 @@ Manifest.toml
 *.jl.*.cov
 *.jl.mem
 
+# Documentation build output
+docs/build/
+docs/Manifest.toml
+
 # Editor backup files
 *~
 *.swp

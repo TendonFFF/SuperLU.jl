@@ -6,7 +6,7 @@ using SciMLBase
 using SparseArrays
 
 import SuperLU: SuperLUFactorization, SuperLUGPUFactorization, SuperLUFactorize, 
-                factorize!, superlu_solve!, update_matrix!
+                factorize!, superlu_solve!, update_matrix!, SuperLUOptions
 import LinearSolve: LinearCache, AbstractFactorization, 
                     init_cacheval, do_factorization, needs_concrete_A
 
@@ -22,6 +22,7 @@ Internal cache structure for SuperLU factorization with LinearSolve.
 mutable struct SuperLUCache{Tv}
     fact::Union{Nothing, SuperLUFactorize{Tv}}
     reuse_symbolic::Bool
+    options::SuperLUOptions
     first_solve::Bool  # Track if this is the first solve after init
 end
 
@@ -32,9 +33,9 @@ function LinearSolve.init_cacheval(alg::SuperLUFactorization,
                                     abstol, reltol, verbose, 
                                     assumptions) where {Tv<:Complex, Ti<:Integer}
     # Create factorization object and perform initial factorization
-    F = SuperLUFactorize(A)
+    F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
-    return SuperLUCache{Tv}(F, alg.reuse_symbolic, true)
+    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, true)
 end
 
 # For non-complex types, we should error or convert
@@ -45,9 +46,9 @@ function LinearSolve.init_cacheval(alg::SuperLUFactorization,
                                     assumptions) where {Tv<:Real, Ti<:Integer}
     # Convert to complex
     Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
-    F = SuperLUFactorize(Ac)
+    F = SuperLUFactorize(Ac; options=alg.options)
     factorize!(F)
-    return SuperLUCache{ComplexF64}(F, alg.reuse_symbolic, true)
+    return SuperLUCache{ComplexF64}(F, alg.reuse_symbolic, alg.options, true)
 end
 
 # Fallback for other matrix types - convert to sparse
@@ -66,9 +67,9 @@ function LinearSolve.do_factorization(alg::SuperLUFactorization,
                                        A::SparseMatrixCSC{Tv, Ti}, 
                                        b, u) where {Tv<:Complex, Ti<:Integer}
     # Create new factorization
-    F = SuperLUFactorize(A)
+    F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
-    return SuperLUCache{Tv}(F, alg.reuse_symbolic, false)
+    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, false)
 end
 
 function LinearSolve.do_factorization(alg::SuperLUFactorization, 
@@ -125,7 +126,7 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
                 factorize!(slu_cache.fact)
             else
                 # Different pattern or no symbolic reuse - create new factorization
-                slu_cache.fact = SuperLUFactorize(A_complex)
+                slu_cache.fact = SuperLUFactorize(A_complex; options=slu_cache.options)
                 factorize!(slu_cache.fact)
             end
         end
@@ -169,6 +170,7 @@ It tracks whether GPU acceleration is actually available and enabled.
   CUDA-enabled BLAS operations when available.
 - `reuse_symbolic::Bool`: Whether to reuse symbolic factorization when the matrix
   sparsity pattern remains the same between solves.
+- `options::SuperLUOptions`: Solver configuration options.
 - `first_solve::Bool`: Tracks if this is the first solve after cache initialization.
   Used to avoid redundant re-factorization on the first solve! call.
 - `gpu_enabled::Bool`: Indicates if GPU acceleration is actually being used.
@@ -187,6 +189,7 @@ complex solver routines used in this package.
 mutable struct SuperLUGPUCache{Tv}
     fact::Union{Nothing, SuperLUFactorize{Tv}}  # Uses CPU fact as base
     reuse_symbolic::Bool
+    options::SuperLUOptions
     first_solve::Bool
     gpu_enabled::Bool  # Track if GPU is actually being used
 end
@@ -202,9 +205,9 @@ function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization,
         @warn "GPU not available, falling back to CPU factorization"
     end
     
-    F = SuperLUFactorize(A)
+    F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
-    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, true, gpu_enabled)
+    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, alg.options, true, gpu_enabled)
 end
 
 function LinearSolve.init_cacheval(alg::SuperLUGPUFactorization, 
@@ -232,9 +235,9 @@ function LinearSolve.do_factorization(alg::SuperLUGPUFactorization,
                                        A::SparseMatrixCSC{Tv, Ti}, 
                                        b, u) where {Tv<:Complex, Ti<:Integer}
     gpu_enabled = SuperLU.is_gpu_available()
-    F = SuperLUFactorize(A)
+    F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
-    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, false, gpu_enabled)
+    return SuperLUGPUCache{Tv}(F, alg.reuse_symbolic, alg.options, false, gpu_enabled)
 end
 
 function LinearSolve.do_factorization(alg::SuperLUGPUFactorization, 
@@ -284,7 +287,7 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUGPUFactorization;
                 update_matrix!(gpu_cache.fact, A_complex)
                 factorize!(gpu_cache.fact)
             else
-                gpu_cache.fact = SuperLUFactorize(A_complex)
+                gpu_cache.fact = SuperLUFactorize(A_complex; options=gpu_cache.options)
                 factorize!(gpu_cache.fact)
             end
         end
