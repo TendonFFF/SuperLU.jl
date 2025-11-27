@@ -13,7 +13,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "github.com/TendonFFF/SuperLU.jl.git",
+    repo = "github.com/$(get(ENV, "GITHUB_REPOSITORY", "TendonFFF/SuperLU.jl")).git",
     devbranch = "main",
     push_preview = true,
 )
