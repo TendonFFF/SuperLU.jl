@@ -1,16 +1,14 @@
 name = "SuperLU"
 uuid = "5e54adbb-e59a-4a64-a24f-c65aa99e667d"
-version = "0.1.0"
 authors = ["Your Name <your.email@example.com>"]
+version = "0.1.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LinearSolve = "7ed4a6bd-45f5-4d41-b270-4a48e9bafcae"
+SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SuperLU_jll = "f391fee2-5786-5cc9-9662-0e362ec949e2"
-
-[weakdeps]
-SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 
 [extensions]
 LinearSolveExt = ["LinearSolve", "SciMLBase"]

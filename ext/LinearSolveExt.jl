@@ -5,10 +5,52 @@ using LinearSolve
 using SciMLBase
 using SparseArrays
 
-import SuperLU: SuperLUFactorization, SuperLUFactorize, SuperLUTypes,
+import SuperLU: SuperLUFactorize, SuperLUTypes,
                 factorize!, superlu_solve!, update_matrix!, SuperLUOptions
 import LinearSolve: LinearCache, AbstractFactorization, 
-                    init_cacheval, do_factorization, needs_concrete_A
+                    init_cacheval, do_factorization, needs_concrete_A,
+                    LinearVerbosity, OperatorAssumptions
+
+# Define SuperLUFactorization as a proper subtype of AbstractFactorization
+"""
+    SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
+
+A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
+Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
+
+## Arguments
+- `reuse_symbolic::Bool = true`: If `true`, the symbolic factorization from a 
+  previous solve will be reused when solving with a new matrix that has the same 
+  sparsity pattern. If `false`, a complete factorization is performed each time.
+- `options::SuperLUOptions = SuperLUOptions()`: Solver configuration options.
+  See [`SuperLUOptions`](@ref) for available settings.
+
+## Example
+```julia
+using SuperLU, LinearSolve, SparseArrays
+
+A = sparse([1.0+0im 2.0; 3.0 4.0])
+b = [1.0+0im, 2.0]
+prob = LinearProblem(A, b)
+sol = solve(prob, SuperLUFactorization())
+
+# With custom options
+opts = SuperLUOptions(col_perm = METIS_AT_PLUS_A, equilibrate = true)
+sol = solve(prob, SuperLUFactorization(options = opts))
+
+# With preset options for ill-conditioned systems
+sol = solve(prob, SuperLUFactorization(options = ILL_CONDITIONED_OPTIONS))
+```
+
+See also: [`SuperLUOptions`](@ref), [`SuperLUFactorize`](@ref)
+"""
+struct SuperLUFactorization <: AbstractFactorization
+    reuse_symbolic::Bool
+    options::SuperLUOptions
+end
+
+SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions()) = 
+    SuperLUFactorization(reuse_symbolic, options)
 
 # Indicate we need a concrete matrix (not lazy representations)
 LinearSolve.needs_concrete_A(::SuperLUFactorization) = true
@@ -29,8 +71,9 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose, 
-                                    assumptions) where {Tv<:SuperLUTypes, Ti<:Integer}
+                                    abstol, reltol, 
+                                    verbose::Union{Bool, LinearVerbosity},
+                                    assumptions::OperatorAssumptions) where {Tv<:SuperLUTypes, Ti<:Integer}
     # Create factorization object and perform initial factorization
     F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
@@ -41,8 +84,9 @@ end
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::AbstractMatrix{Tv}, 
                                     b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose, 
-                                    assumptions) where {Tv}
+                                    abstol, reltol, 
+                                    verbose::Union{Bool, LinearVerbosity},
+                                    assumptions::OperatorAssumptions) where {Tv}
     As = sparse(A)
     return LinearSolve.init_cacheval(alg, As, b, u, Pl, Pr, maxiters, 
                                       abstol, reltol, verbose, assumptions)
@@ -128,6 +172,15 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
     
     return SciMLBase.build_linear_solution(alg, cache.u, nothing, cache; 
                                            retcode=SciMLBase.ReturnCode.Success)
+end
+
+# Make SuperLUFactorization available in the SuperLU module's namespace
+# This allows users to use SuperLU.SuperLUFactorization() after loading LinearSolve
+function __init__()
+    @eval SuperLU begin
+        const SuperLUFactorization = $SuperLUFactorization
+        export SuperLUFactorization
+    end
 end
 
 end # module

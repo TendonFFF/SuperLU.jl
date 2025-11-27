@@ -9,52 +9,7 @@ include("types.jl")
 include("wrappers.jl")
 include("interface.jl")
 
-# Define SuperLUFactorization type here (implementation in extension)
-# This allows the type to be exported and used even without LinearSolve loaded
-"""
-    SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
-
-A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
-Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
-
-Requires loading LinearSolve.jl to use with LinearSolve's solve interface.
-
-## Arguments
-- `reuse_symbolic::Bool = true`: If `true`, the symbolic factorization from a 
-  previous solve will be reused when solving with a new matrix that has the same 
-  sparsity pattern. If `false`, a complete factorization is performed each time.
-- `options::SuperLUOptions = SuperLUOptions()`: Solver configuration options.
-  See [`SuperLUOptions`](@ref) for available settings.
-
-## Example
-```julia
-using SuperLU, LinearSolve, SparseArrays
-
-A = sparse([1.0+0im 2.0; 3.0 4.0])
-b = [1.0+0im, 2.0]
-prob = LinearProblem(A, b)
-sol = solve(prob, SuperLUFactorization())
-
-# With custom options
-opts = SuperLUOptions(col_perm = METIS_AT_PLUS_A, equilibrate = true)
-sol = solve(prob, SuperLUFactorization(options = opts))
-
-# With preset options for ill-conditioned systems
-sol = solve(prob, SuperLUFactorization(options = ILL_CONDITIONED_OPTIONS))
-```
-
-See also: [`SuperLUOptions`](@ref), [`SuperLUFactorize`](@ref)
-"""
-struct SuperLUFactorization
-    reuse_symbolic::Bool
-    options::SuperLUOptions
-end
-
-SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions()) = 
-    SuperLUFactorization(reuse_symbolic, options)
-
 # Export main types and functions
-export SuperLUFactorization
 export SuperLUFactorize, factorize!, superlu_solve!, superlu_solve, update_matrix!
 
 # Export options
