@@ -127,4 +127,7 @@ export rowperm_t, NOROWPERM, LargeDiag_MC64, LargeDiag_HWPM
 # Export iterative refinement options
 export IterRefine_t, NOREFINE, SLU_SINGLE, SLU_DOUBLE, SLU_EXTRA
 
+# Export yes/no enum for checking options
+export yes_no_t, YES, NO
+
 end # module
