@@ -5,7 +5,7 @@ A Julia interface for [SuperLU](https://portal.nersc.gov/project/sparse/superlu/
 ## Features
 
 - Complex double precision (ComplexF64) sparse matrix solver
-- Integration with [LinearSolve.jl](https://github.com/SciML/LinearSolve.jl)
+- Integration with [LinearSolve.jl](https://github.com/SciML/LinearSolve.jl) via package extension
 - Support for reusing factorization objects with updated matrix values
 
 ## Installation
@@ -37,6 +37,8 @@ superlu_solve!(F, x)
 ```
 
 ### LinearSolve.jl Integration
+
+The LinearSolve.jl integration is provided via a package extension that loads automatically when both `SuperLU` and `LinearSolve` are loaded:
 
 ```julia
 using SuperLU
@@ -87,7 +89,7 @@ sol2 = solve!(cache)
 
 ### Types
 
-- `SuperLUFactorization(; reuse_symbolic::Bool = true)`: LinearSolve.jl compatible factorization algorithm
+- `SuperLUFactorization(; reuse_symbolic::Bool = true)`: LinearSolve.jl compatible factorization algorithm (requires LinearSolve.jl to be loaded)
 - `SuperLUFactorize{Tv}`: Internal factorization object
 
 ### Functions
@@ -100,6 +102,8 @@ sol2 = solve!(cache)
 ## Dependencies
 
 This package uses [SuperLU_jll](https://github.com/JuliaBinaryWrappers/SuperLU_jll.jl) for pre-built SuperLU binaries.
+
+The LinearSolve.jl integration is loaded automatically when both packages are available (via Julia's package extension mechanism).
 
 ## License
 

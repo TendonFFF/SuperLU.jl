@@ -1,36 +1,13 @@
-# LinearSolve.jl integration for SuperLU
+module LinearSolveExt
 
+using SuperLU
+using LinearSolve
 using SciMLBase
-import LinearSolve
+using SparseArrays
+
+import SuperLU: SuperLUFactorization, SuperLUFactorize, factorize!, superlu_solve!, update_matrix!
 import LinearSolve: LinearCache, AbstractFactorization, 
-                    init_cacheval, do_factorization, init_cacheval, needs_concrete_A
-
-"""
-    SuperLUFactorization(; reuse_symbolic::Bool = true)
-
-A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
-Supports complex double precision (ComplexF64) matrices.
-
-## Arguments
-- `reuse_symbolic::Bool = true`: If `true`, the symbolic factorization from a 
-  previous solve will be reused when solving with a new matrix that has the same 
-  sparsity pattern. If `false`, a complete factorization is performed each time.
-
-## Example
-```julia
-using SuperLU, LinearSolve, SparseArrays
-
-A = sparse([1.0+0im 2.0; 3.0 4.0])
-b = [1.0+0im, 2.0]
-prob = LinearProblem(A, b)
-sol = solve(prob, SuperLUFactorization())
-```
-"""
-struct SuperLUFactorization <: AbstractFactorization
-    reuse_symbolic::Bool
-end
-
-SuperLUFactorization(; reuse_symbolic::Bool = true) = SuperLUFactorization(reuse_symbolic)
+                    init_cacheval, do_factorization, needs_concrete_A
 
 # Indicate we need a concrete matrix (not lazy representations)
 LinearSolve.needs_concrete_A(::SuperLUFactorization) = true
@@ -168,10 +145,4 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
                                            retcode=SciMLBase.ReturnCode.Success)
 end
 
-# Default algorithm selection (needed for LinearSolve compatibility)
-function LinearSolve.defaultalg(A::SparseMatrixCSC{Tv, Ti}, b, 
-                                 assump) where {Tv<:Complex, Ti}
-    # Return nothing to let LinearSolve choose, or return SuperLUFactorization()
-    # to make it the default for complex sparse matrices
-    return nothing
-end
+end # module
