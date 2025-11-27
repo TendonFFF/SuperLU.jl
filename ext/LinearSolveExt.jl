@@ -12,7 +12,7 @@ import LinearSolve: LinearCache, AbstractFactorization,
                     LinearVerbosity, OperatorAssumptions
 
 # Define SuperLUFactorization as a proper subtype of AbstractFactorization
-"""
+@doc raw"""
     SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
 
 A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
