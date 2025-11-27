@@ -40,6 +40,12 @@ end
     sol = solve(prob, SuperLUFactorization())
     
     @test norm(A * sol.u - b) < 1e-10
+
+    A = sprand(ComplexF64, 10000, 10000, 0.0001) + I
+    b = randn(ComplexF64, 10000)
+    prob = LinearProblem(A, b)
+    sol = solve(prob, SuperLUFactorization())
+    @test norm(A * sol.u - b) < 1e-8
 end
 
 @testitem "Reuse symbolic factorization" begin
