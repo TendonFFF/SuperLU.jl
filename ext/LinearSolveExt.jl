@@ -5,7 +5,7 @@ using LinearSolve
 using SciMLBase
 using SparseArrays
 
-import SuperLU: SuperLUFactorization, SuperLUFactorize, 
+import SuperLU: SuperLUFactorization, SuperLUFactorize, SuperLUTypes,
                 factorize!, superlu_solve!, update_matrix!, SuperLUOptions
 import LinearSolve: LinearCache, AbstractFactorization, 
                     init_cacheval, do_factorization, needs_concrete_A
@@ -25,29 +25,16 @@ mutable struct SuperLUCache{Tv}
     first_solve::Bool  # Track if this is the first solve after init
 end
 
-# Initialize cache value for the first time
+# Initialize cache value for all supported SuperLU types
 function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
                                     A::SparseMatrixCSC{Tv, Ti}, 
                                     b, u, Pl, Pr, maxiters::Int, 
                                     abstol, reltol, verbose, 
-                                    assumptions) where {Tv<:Complex, Ti<:Integer}
+                                    assumptions) where {Tv<:SuperLUTypes, Ti<:Integer}
     # Create factorization object and perform initial factorization
     F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
     return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, true)
-end
-
-# For non-complex types, we should error or convert
-function LinearSolve.init_cacheval(alg::SuperLUFactorization, 
-                                    A::SparseMatrixCSC{Tv, Ti}, 
-                                    b, u, Pl, Pr, maxiters::Int, 
-                                    abstol, reltol, verbose, 
-                                    assumptions) where {Tv<:Real, Ti<:Integer}
-    # Convert to complex
-    Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
-    F = SuperLUFactorize(Ac; options=alg.options)
-    factorize!(F)
-    return SuperLUCache{ComplexF64}(F, alg.reuse_symbolic, alg.options, true)
 end
 
 # Fallback for other matrix types - convert to sparse
@@ -61,21 +48,14 @@ function LinearSolve.init_cacheval(alg::SuperLUFactorization,
                                       abstol, reltol, verbose, assumptions)
 end
 
-# Handle re-factorization when matrix changes
+# Handle re-factorization when matrix changes for all supported types
 function LinearSolve.do_factorization(alg::SuperLUFactorization, 
                                        A::SparseMatrixCSC{Tv, Ti}, 
-                                       b, u) where {Tv<:Complex, Ti<:Integer}
+                                       b, u) where {Tv<:SuperLUTypes, Ti<:Integer}
     # Create new factorization
     F = SuperLUFactorize(A; options=alg.options)
     factorize!(F)
     return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, false)
-end
-
-function LinearSolve.do_factorization(alg::SuperLUFactorization, 
-                                       A::SparseMatrixCSC{Tv, Ti}, 
-                                       b, u) where {Tv<:Real, Ti<:Integer}
-    Ac = SparseMatrixCSC{ComplexF64, Ti}(A)
-    return LinearSolve.do_factorization(alg, Ac, b, u)
 end
 
 function LinearSolve.do_factorization(alg::SuperLUFactorization, 
@@ -104,6 +84,7 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
     end
     
     slu_cache = cacheval::SuperLUCache
+    Tv = eltype(slu_cache.fact.nzval_ref)
     
     # Check if we need to re-factorize
     if cache.isfresh
@@ -113,34 +94,36 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
         else
             # Matrix changed, need to re-factorize
             A_sparse = A isa SparseMatrixCSC ? A : sparse(A)
-            A_complex = eltype(A_sparse) <: Complex ? A_sparse : 
-                        SparseMatrixCSC{ComplexF64, eltype(A_sparse.colptr)}(A_sparse)
+            # Convert to the same type as our factorization
+            A_typed = eltype(A_sparse) == Tv ? A_sparse : 
+                      SparseMatrixCSC{Tv, eltype(A_sparse.colptr)}(A_sparse)
             
             if slu_cache.reuse_symbolic && slu_cache.fact !== nothing && 
-               size(A_complex, 1) == slu_cache.fact.n && 
-               length(A_complex.nzval) == slu_cache.fact.nnz
+               size(A_typed, 1) == slu_cache.fact.n && 
+               length(A_typed.nzval) == slu_cache.fact.nnz
                 # Same pattern - update values and re-factorize
-                # (reusing the factorization object but doing full numeric factorization)
-                update_matrix!(slu_cache.fact, A_complex)
+                update_matrix!(slu_cache.fact, A_typed)
                 factorize!(slu_cache.fact)
             else
                 # Different pattern or no symbolic reuse - create new factorization
-                slu_cache.fact = SuperLUFactorize(A_complex; options=slu_cache.options)
+                slu_cache.fact = SuperLUFactorize(A_typed; options=slu_cache.options)
                 factorize!(slu_cache.fact)
             end
         end
         cache.isfresh = false
     end
     
-    # Solve the system
-    b_complex = eltype(b) <: Complex ? copy(b) : ComplexF64.(b)
-    superlu_solve!(slu_cache.fact, b_complex)
+    # Solve the system - convert b to the factorization type
+    b_typed = eltype(b) == Tv ? copy(b) : Tv.(b)
+    superlu_solve!(slu_cache.fact, b_typed)
     
-    # Copy result to u
-    if eltype(cache.u) <: Complex
-        copyto!(cache.u, b_complex)
+    # Copy result to u, converting back to the output type
+    if eltype(cache.u) == Tv
+        copyto!(cache.u, b_typed)
+    elseif eltype(cache.u) <: Real && Tv <: Complex
+        copyto!(cache.u, real.(b_typed))
     else
-        copyto!(cache.u, real.(b_complex))
+        copyto!(cache.u, convert.(eltype(cache.u), b_typed))
     end
     
     return SciMLBase.build_linear_solution(alg, cache.u, nothing, cache; 

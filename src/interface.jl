@@ -7,6 +7,12 @@ A mutable struct that holds the LU factorization of a sparse matrix using SuperL
 This includes the L and U factors, permutation vectors, and other data needed
 for solving linear systems.
 
+# Supported element types
+- `Float32` (single precision real)
+- `Float64` (double precision real)
+- `ComplexF32` (single precision complex)
+- `ComplexF64` (double precision complex)
+
 # Fields
 - `n::Int`: Matrix dimension
 - `nnz::Int`: Number of non-zeros
@@ -14,7 +20,7 @@ for solving linear systems.
 - `symbolic_done::Bool`: Whether symbolic factorization is complete
 
 # Constructor
-    SuperLUFactorize(A::SparseMatrixCSC{ComplexF64}; options::SuperLUOptions=SuperLUOptions())
+    SuperLUFactorize(A::SparseMatrixCSC{T}; options::SuperLUOptions=SuperLUOptions())
 
 Create a new factorization object for the sparse matrix `A`.
 
@@ -26,15 +32,22 @@ Create a new factorization object for the sparse matrix `A`.
 ```julia
 using SuperLU, SparseArrays
 
+# Complex double precision
 A = sparse([1.0+1.0im 2.0+0im; 3.0-1.0im 4.0+2.0im])
 F = SuperLUFactorize(A)
 factorize!(F)
 x = superlu_solve(F, [1.0+0im, 2.0+1.0im])
+
+# Real double precision
+A_real = sparse([4.0 1.0; 1.0 3.0])
+F_real = SuperLUFactorize(A_real)
+factorize!(F_real)
+x_real = superlu_solve(F_real, [1.0, 2.0])
 ```
 
 See also: [`SuperLUOptions`](@ref), [`factorize!`](@ref), [`superlu_solve!`](@ref)
 """
-mutable struct SuperLUFactorize{Tv<:Complex}
+mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
     # Original matrix info
     n::Int
     nnz::Int
@@ -73,7 +86,7 @@ mutable struct SuperLUFactorize{Tv<:Complex}
     symbolic_done::Bool
     
     function SuperLUFactorize{Tv}(A::SparseMatrixCSC{Tv, Ti}; 
-                                   options::SuperLUOptions=SuperLUOptions()) where {Tv<:Complex, Ti<:Integer}
+                                   options::SuperLUOptions=SuperLUOptions()) where {Tv<:SuperLUTypes, Ti<:Integer}
         n = size(A, 1)
         m = size(A, 2)
         n != m && throw(DimensionMismatch("Matrix must be square"))
@@ -84,11 +97,12 @@ mutable struct SuperLUFactorize{Tv<:Complex}
         colptr = Vector{Cint}(A.colptr .- 1)
         nnz = length(nzval)
         
-        # Create SuperMatrix A
+        # Create SuperMatrix A using type-specific wrapper
         A_mat = SuperMatrix()
-        zCreate_CompCol_Matrix!(A_mat, Cint(m), Cint(n), Cint(nnz),
-                                pointer(nzval), pointer(rowind), pointer(colptr),
-                                SLU_NC, SLU_Z, SLU_GE)
+        dtype = slu_dtype(Tv)
+        Create_CompCol_Matrix!(A_mat, Cint(m), Cint(n), Cint(nnz),
+                               pointer(nzval), pointer(rowind), pointer(colptr),
+                               SLU_NC, dtype, SLU_GE)
         
         # Initialize L and U
         L_mat = SuperMatrix()
@@ -119,7 +133,16 @@ mutable struct SuperLUFactorize{Tv<:Complex}
     end
 end
 
-# Constructor for ComplexF64 (default)
+# Constructors for all supported types
+SuperLUFactorize(A::SparseMatrixCSC{Float32, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
+    SuperLUFactorize{Float32}(A; options=options)
+
+SuperLUFactorize(A::SparseMatrixCSC{Float64, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
+    SuperLUFactorize{Float64}(A; options=options)
+
+SuperLUFactorize(A::SparseMatrixCSC{ComplexF32, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
+    SuperLUFactorize{ComplexF32}(A; options=options)
+
 SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
     SuperLUFactorize{ComplexF64}(A; options=options)
 
@@ -137,17 +160,18 @@ function factorize!(F::SuperLUFactorize{Tv}) where Tv
     F.options.Fact = DOFACT
     F.options.PrintStat = NO  # Disable printing
     
-    # Create dummy B matrix for zgssv (we only want factorization)
+    # Create dummy B matrix for gssv (we only want factorization)
     x = zeros(Tv, F.n)
     B_mat = SuperMatrix()
-    zCreate_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(x), Cint(F.n),
-                          SLU_DN, SLU_Z, SLU_GE)
+    dtype = slu_dtype(Tv)
+    Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(x), Cint(F.n),
+                         SLU_DN, dtype, SLU_GE)
     
-    # Perform factorization
+    # Perform factorization using type-generic wrapper
     info = Ref{Cint}(0)
     try
-        zgssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
-               F.L, F.U, B_mat, stat, info)
+        gssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
+              F.L, F.U, B_mat, stat, info, Tv)
     finally
         # Clean up temporary B matrix
         Destroy_SuperMatrix_Store!(B_mat)
@@ -180,20 +204,21 @@ function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv};
     !F.factorized && error("Matrix not factorized. Call factorize! first.")
     length(b) != F.n && throw(DimensionMismatch("RHS vector length mismatch"))
     
-    # Create B matrix
+    # Create B matrix using type-generic wrapper
     B_mat = SuperMatrix()
-    zCreate_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
-                          SLU_DN, SLU_Z, SLU_GE)
+    dtype = slu_dtype(Tv)
+    Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
+                         SLU_DN, dtype, SLU_GE)
     
     # Initialize statistics
     stat = SuperLUStat_t()
     StatInit!(stat)
     
-    # Solve
+    # Solve using type-generic wrapper
     info = Ref{Cint}(0)
     try
-        zgstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
-                B_mat, stat, info)
+        gstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
+               B_mat, stat, info, Tv)
     finally
         # Clean up temporary B matrix
         Destroy_SuperMatrix_Store!(B_mat)
@@ -242,11 +267,12 @@ function update_matrix!(F::SuperLUFactorize{Tv}, A::SparseMatrixCSC{Tv, Ti}) whe
     F.rowind_ref = rowind
     F.colptr_ref = colptr
     
-    # Create new SuperMatrix A with updated values
+    # Create new SuperMatrix A with updated values using type-generic wrapper
     F.A = SuperMatrix()
-    zCreate_CompCol_Matrix!(F.A, Cint(F.n), Cint(F.n), Cint(F.nnz),
-                            pointer(nzval), pointer(rowind), pointer(colptr),
-                            SLU_NC, SLU_Z, SLU_GE)
+    dtype = slu_dtype(Tv)
+    Create_CompCol_Matrix!(F.A, Cint(F.n), Cint(F.n), Cint(F.nnz),
+                           pointer(nzval), pointer(rowind), pointer(colptr),
+                           SLU_NC, dtype, SLU_GE)
     
     # Reset L and U for new factorization
     F.L = SuperMatrix()
@@ -261,4 +287,133 @@ function update_matrix!(F::SuperLUFactorize{Tv}, A::SparseMatrixCSC{Tv, Ti}) whe
     F.factorized = false
     
     return F
+end
+
+# ============================================================================
+# Matrix symmetry checking utilities
+# ============================================================================
+
+# Helper function to check if a row index exists in a column using binary search
+# Returns the index if found, or 0 if not found
+function _find_row_in_col(A::SparseMatrixCSC, col::Int, target_row::Int)
+    start_idx = A.colptr[col]
+    end_idx = A.colptr[col+1] - 1
+    
+    # Binary search for target_row in the sorted rowval array
+    while start_idx <= end_idx
+        mid = (start_idx + end_idx) ÷ 2
+        mid_row = A.rowval[mid]
+        if mid_row == target_row
+            return mid
+        elseif mid_row < target_row
+            start_idx = mid + 1
+        else
+            end_idx = mid - 1
+        end
+    end
+    return 0
+end
+
+"""
+    issymmetric_structure(A::SparseMatrixCSC) -> Bool
+
+Check if a sparse matrix has symmetric sparsity structure (A[i,j] ≠ 0 ⟺ A[j,i] ≠ 0).
+This is useful for selecting appropriate column permutation strategies.
+
+Note: This only checks the sparsity pattern, not the values.
+
+Complexity: O(nnz * log(max_column_size)) due to binary search.
+"""
+function issymmetric_structure(A::SparseMatrixCSC)
+    m, n = size(A)
+    m != n && return false
+    
+    # For each non-zero entry (row, col), check if (col, row) also exists
+    # Use binary search since row indices are sorted within each column
+    for col in 1:n
+        for idx in A.colptr[col]:(A.colptr[col+1]-1)
+            row = A.rowval[idx]
+            if row != col  # Skip diagonal
+                # Check if (col, row) exists using binary search
+                if _find_row_in_col(A, row, col) == 0
+                    return false
+                end
+            end
+        end
+    end
+    return true
+end
+
+"""
+    ishermitian_approx(A::SparseMatrixCSC; rtol::Real=1e-10) -> Bool
+
+Check if a sparse matrix is approximately Hermitian (A ≈ A').
+For real matrices, this is equivalent to checking symmetry.
+
+Returns `true` if for all (i,j): |A[i,j] - conj(A[j,i])| ≤ rtol * max(|A[i,j]|, |A[j,i]|)
+
+Complexity: O(nnz * log(max_column_size)) due to binary search.
+"""
+function ishermitian_approx(A::SparseMatrixCSC{Tv}; rtol::Real=1e-10) where Tv
+    m, n = size(A)
+    m != n && return false
+    
+    for col in 1:n
+        for idx in A.colptr[col]:(A.colptr[col+1]-1)
+            row = A.rowval[idx]
+            val = A.nzval[idx]
+            
+            # Find the corresponding (col, row) entry using binary search
+            idx2 = _find_row_in_col(A, row, col)
+            val_transpose = idx2 > 0 ? A.nzval[idx2] : zero(Tv)
+            
+            # Check Hermitian condition
+            diff = abs(val - conj(val_transpose))
+            max_val = max(abs(val), abs(val_transpose))
+            if max_val > 0 && diff > rtol * max_val
+                return false
+            end
+        end
+    end
+    return true
+end
+
+"""
+    issymmetric_approx(A::SparseMatrixCSC{<:Real}; rtol::Real=1e-10) -> Bool
+
+Check if a real sparse matrix is approximately symmetric.
+"""
+issymmetric_approx(A::SparseMatrixCSC{Tv}; rtol::Real=1e-10) where Tv<:Real = 
+    ishermitian_approx(A; rtol=rtol)
+
+"""
+    suggest_options(A::SparseMatrixCSC) -> SuperLUOptions
+
+Analyze the matrix and suggest appropriate solver options.
+This function examines the matrix structure and returns options that may
+provide better performance or accuracy.
+
+# Returns
+A `SuperLUOptions` object with settings tuned for the given matrix.
+
+# Example
+```julia
+A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+opts = suggest_options(A)
+F = SuperLUFactorize(A; options=opts)
+```
+"""
+function suggest_options(A::SparseMatrixCSC)
+    opts = SuperLUOptions()
+    
+    # Check for symmetry to use more efficient ordering
+    if issymmetric_structure(A)
+        # Use ordering that exploits symmetric structure
+        opts = SuperLUOptions(
+            col_perm = MMD_AT_PLUS_A,
+            symmetric_mode = true
+        )
+    end
+    
+    return opts
 end

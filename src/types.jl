@@ -397,6 +397,110 @@ function SuperLUOptions(;
     )
 end
 
+# ============================================================================
+# Preset Options Objects
+# ============================================================================
+
+"""
+    ILL_CONDITIONED_OPTIONS
+
+Pre-configured options optimized for solving ill-conditioned systems.
+These settings prioritize numerical stability and accuracy over speed.
+
+Equivalent to:
+```julia
+SuperLUOptions(
+    equilibrate = true,
+    iterative_refinement = SLU_EXTRA,
+    replace_tiny_pivot = true,
+    row_perm = LargeDiag_MC64
+)
+```
+
+See also: [`SuperLUOptions`](@ref), [`PERFORMANCE_OPTIONS`](@ref), [`ACCURACY_OPTIONS`](@ref)
+"""
+const ILL_CONDITIONED_OPTIONS = SuperLUOptions(
+    equilibrate = true,
+    iterative_refinement = SLU_EXTRA,
+    replace_tiny_pivot = true,
+    row_perm = LargeDiag_MC64
+)
+
+"""
+    PERFORMANCE_OPTIONS
+
+Pre-configured options optimized for maximum performance.
+These settings prioritize speed over accuracy - use only for well-conditioned systems.
+
+Equivalent to:
+```julia
+SuperLUOptions(
+    col_perm = COLAMD,
+    row_perm = NOROWPERM,
+    equilibrate = false,
+    iterative_refinement = NOREFINE
+)
+```
+
+See also: [`SuperLUOptions`](@ref), [`ILL_CONDITIONED_OPTIONS`](@ref), [`ACCURACY_OPTIONS`](@ref)
+"""
+const PERFORMANCE_OPTIONS = SuperLUOptions(
+    col_perm = COLAMD,
+    row_perm = NOROWPERM,
+    equilibrate = false,
+    iterative_refinement = NOREFINE
+)
+
+"""
+    ACCURACY_OPTIONS
+
+Pre-configured options optimized for maximum accuracy.
+These settings prioritize accuracy over speed.
+
+Equivalent to:
+```julia
+SuperLUOptions(
+    col_perm = MMD_AT_PLUS_A,
+    row_perm = LargeDiag_MC64,
+    equilibrate = true,
+    iterative_refinement = SLU_DOUBLE,
+    diag_pivot_thresh = 1.0
+)
+```
+
+See also: [`SuperLUOptions`](@ref), [`ILL_CONDITIONED_OPTIONS`](@ref), [`PERFORMANCE_OPTIONS`](@ref)
+"""
+const ACCURACY_OPTIONS = SuperLUOptions(
+    col_perm = MMD_AT_PLUS_A,
+    row_perm = LargeDiag_MC64,
+    equilibrate = true,
+    iterative_refinement = SLU_DOUBLE,
+    diag_pivot_thresh = 1.0
+)
+
+"""
+    SYMMETRIC_OPTIONS
+
+Pre-configured options optimized for symmetric or nearly symmetric matrices.
+These settings use ordering strategies that exploit symmetric structure.
+
+Equivalent to:
+```julia
+SuperLUOptions(
+    col_perm = MMD_AT_PLUS_A,
+    symmetric_mode = true,
+    equilibrate = true
+)
+```
+
+See also: [`SuperLUOptions`](@ref), [`issymmetric_structure`](@ref)
+"""
+const SYMMETRIC_OPTIONS = SuperLUOptions(
+    col_perm = MMD_AT_PLUS_A,
+    symmetric_mode = true,
+    equilibrate = true
+)
+
 # apply_options! function is defined after superlu_options_t struct below
 
 # ============================================================================

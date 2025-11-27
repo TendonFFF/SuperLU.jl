@@ -15,7 +15,7 @@ include("interface.jl")
     SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
 
 A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
-Supports complex double precision (ComplexF64) matrices.
+Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
 
 Requires loading LinearSolve.jl to use with LinearSolve's solve interface.
 
@@ -38,6 +38,9 @@ sol = solve(prob, SuperLUFactorization())
 # With custom options
 opts = SuperLUOptions(col_perm = METIS_AT_PLUS_A, equilibrate = true)
 sol = solve(prob, SuperLUFactorization(options = opts))
+
+# With preset options for ill-conditioned systems
+sol = solve(prob, SuperLUFactorization(options = ILL_CONDITIONED_OPTIONS))
 ```
 
 See also: [`SuperLUOptions`](@ref), [`SuperLUFactorize`](@ref)
@@ -56,6 +59,15 @@ export SuperLUFactorize, factorize!, superlu_solve!, superlu_solve, update_matri
 
 # Export options
 export SuperLUOptions
+
+# Export preset options
+export ILL_CONDITIONED_OPTIONS, PERFORMANCE_OPTIONS, ACCURACY_OPTIONS, SYMMETRIC_OPTIONS
+
+# Export symmetry checking utilities
+export issymmetric_structure, ishermitian_approx, issymmetric_approx, suggest_options
+
+# Export supported types alias
+export SuperLUTypes
 
 # Export trans_t enum for use in extensions
 export trans_t, NOTRANS, TRANS, CONJ

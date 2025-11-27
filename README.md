@@ -7,9 +7,11 @@ A Julia interface for [SuperLU](https://portal.nersc.gov/project/sparse/superlu/
 
 ## Features
 
-- Complex double precision (ComplexF64) sparse matrix solver
+- **Multiple precision support**: Float32, Float64, ComplexF32, and ComplexF64 sparse matrices
 - Integration with [LinearSolve.jl](https://github.com/SciML/LinearSolve.jl) via package extension
 - Support for reusing factorization objects with updated matrix values
+- **Preset options** for common scenarios (ill-conditioned systems, performance, accuracy, symmetric matrices)
+- **Symmetry checking utilities** for matrix analysis and algorithm selection
 - **GPU acceleration** via CUDA.jl extension (experimental)
 
 ## Installation
@@ -27,17 +29,25 @@ Pkg.add("SuperLU")
 using SuperLU
 using SparseArrays
 
-# Create a sparse complex matrix
-A = sparse([1.0+1.0im 2.0+0im 0.0; 
-            3.0-1.0im 4.0+2.0im 1.0+0im; 
-            0.0 1.0+1.0im 5.0-1.0im])
-b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
+# Real double precision matrix
+A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+b = [1.0, 2.0, 3.0]
 
-# Create factorization and solve
 F = SuperLUFactorize(A)
 factorize!(F)
 x = copy(b)
 superlu_solve!(F, x)
+
+# Complex double precision matrix
+A_complex = sparse([1.0+1.0im 2.0+0im 0.0; 
+                    3.0-1.0im 4.0+2.0im 1.0+0im; 
+                    0.0 1.0+1.0im 5.0-1.0im])
+b_complex = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
+
+F_complex = SuperLUFactorize(A_complex)
+factorize!(F_complex)
+x_complex = copy(b_complex)
+superlu_solve!(F_complex, x_complex)
 ```
 
 ### LinearSolve.jl Integration
@@ -157,14 +167,61 @@ The current GPU implementation provides:
 - Support for matrices stored directly on GPU memory
 - Multi-GPU support for very large matrices
 
+## Preset Options
+
+SuperLU.jl provides pre-configured option objects for common use cases:
+
+```julia
+using SuperLU
+
+# For ill-conditioned systems
+F = SuperLUFactorize(A; options=ILL_CONDITIONED_OPTIONS)
+
+# For maximum performance (well-conditioned systems only)
+F = SuperLUFactorize(A; options=PERFORMANCE_OPTIONS)
+
+# For maximum accuracy
+F = SuperLUFactorize(A; options=ACCURACY_OPTIONS)
+
+# For symmetric or nearly symmetric matrices
+F = SuperLUFactorize(A; options=SYMMETRIC_OPTIONS)
+```
+
+## Matrix Symmetry Checking
+
+SuperLU.jl provides utilities to analyze matrix symmetry:
+
+```julia
+using SuperLU
+using SparseArrays
+
+A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+
+# Check sparsity pattern symmetry
+issymmetric_structure(A)  # true
+
+# Check value symmetry
+issymmetric_approx(A)  # true
+
+# Get suggested options based on matrix analysis
+opts = suggest_options(A)
+```
+
 ## API Reference
 
 ### Types
 
 - `SuperLUFactorization(; reuse_symbolic::Bool = true)`: LinearSolve.jl compatible factorization algorithm (requires LinearSolve.jl to be loaded)
 - `SuperLUGPUFactorization(; reuse_symbolic::Bool = true)`: GPU-accelerated factorization (requires CUDA.jl to be loaded)
-- `SuperLUFactorize{Tv}`: Internal factorization object
+- `SuperLUFactorize{Tv}`: Internal factorization object (Tv can be Float32, Float64, ComplexF32, or ComplexF64)
 - `SuperLUGPUFactorize{Tv}`: GPU-accelerated internal factorization object (requires CUDA.jl)
+
+### Preset Options
+
+- `ILL_CONDITIONED_OPTIONS`: Optimized for ill-conditioned systems
+- `PERFORMANCE_OPTIONS`: Optimized for maximum performance
+- `ACCURACY_OPTIONS`: Optimized for maximum accuracy
+- `SYMMETRIC_OPTIONS`: Optimized for symmetric matrices
 
 ### Functions
 
@@ -172,6 +229,10 @@ The current GPU implementation provides:
 - `superlu_solve!(F::SuperLUFactorize, b::Vector)`: Solve the system, overwriting b with the solution
 - `superlu_solve(F::SuperLUFactorize, b::Vector)`: Solve the system, returning a new solution vector
 - `update_matrix!(F::SuperLUFactorize, A::SparseMatrixCSC)`: Update matrix values (same pattern required)
+- `issymmetric_structure(A)`: Check if matrix has symmetric sparsity pattern
+- `issymmetric_approx(A)`: Check if real matrix is approximately symmetric
+- `ishermitian_approx(A)`: Check if complex matrix is approximately Hermitian
+- `suggest_options(A)`: Analyze matrix and suggest appropriate solver options
 - `is_gpu_available()`: Check if GPU acceleration is available
 
 ## Dependencies
