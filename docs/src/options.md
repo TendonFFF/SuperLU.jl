@@ -314,7 +314,7 @@ opts = ILL_CONDITIONED_OPTIONS
 
 ### Using Multiple Threads (`nthreads`)
 
-SuperLU.jl exposes an `nthreads` parameter for multi-threaded factorization. When `nthreads > 1`, BLAS is automatically set to single-threaded mode during SuperLU operations to avoid thread conflicts.
+SuperLU.jl exposes an `nthreads` parameter for future multi-threaded factorization support. When `nthreads > 1`, BLAS is automatically set to single-threaded mode during SuperLU operations to avoid thread conflicts.
 
 ```julia
 using SuperLU
@@ -325,7 +325,7 @@ A = sparse([4.0 1.0; 1.0 4.0])
 # Single-threaded (default, no BLAS threading changes)
 F1 = SuperLUFactorize(A; nthreads=1)
 
-# With nthreads > 1 (BLAS set to 1 thread during operations)
+# With nthreads > 1 (factorization still sequential, BLAS set to 1 thread)
 F2 = SuperLUFactorize(A; nthreads=4)
 ```
 
