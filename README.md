@@ -12,7 +12,6 @@ A Julia interface for [SuperLU](https://portal.nersc.gov/project/sparse/superlu/
 - Support for reusing factorization objects with updated matrix values
 - **Preset options** for common scenarios (ill-conditioned systems, performance, accuracy, symmetric matrices)
 - **Symmetry checking utilities** for matrix analysis and algorithm selection
-- **GPU acceleration** via CUDA.jl extension (experimental)
 
 ## Installation
 
@@ -99,74 +98,6 @@ cache.isfresh = true
 sol2 = solve!(cache)
 ```
 
-## GPU Support (Experimental)
-
-SuperLU.jl provides experimental GPU acceleration through the CUDA.jl package extension.
-When CUDA.jl is loaded and a compatible GPU is available, GPU-accelerated operations
-can be used for improved performance on large sparse systems.
-
-### Enabling GPU Support
-
-```julia
-using SuperLU
-using CUDA  # Load CUDA.jl to enable GPU acceleration
-
-# Check if GPU acceleration is available
-if is_gpu_available()
-    println("GPU acceleration is enabled!")
-end
-```
-
-### GPU Factorization
-
-```julia
-using SuperLU
-using CUDA
-using SparseArrays
-
-A = sparse([1.0+1.0im 2.0+0im 0.0; 
-            3.0-1.0im 4.0+2.0im 1.0+0im; 
-            0.0 1.0+1.0im 5.0-1.0im])
-b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
-
-# Create GPU-accelerated factorization
-F = SuperLUGPUFactorize(A)
-factorize!(F)
-x = copy(b)
-superlu_solve!(F, x)
-```
-
-### GPU Support with LinearSolve.jl
-
-```julia
-using SuperLU
-using CUDA
-using LinearSolve
-using SparseArrays
-
-A = sparse([1.0+1.0im 2.0+0im 0.0; 
-            3.0-1.0im 4.0+2.0im 1.0+0im; 
-            0.0 1.0+1.0im 5.0-1.0im])
-b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
-
-prob = LinearProblem(A, b)
-sol = solve(prob, SuperLUGPUFactorization())
-```
-
-### GPU Support Status
-
-The current GPU implementation provides:
-
-- **CUDA-accelerated BLAS operations**: Dense matrix operations during factorization
-  benefit from GPU acceleration through CUDA's cuBLAS library.
-- **Hybrid CPU-GPU execution**: Symbolic factorization is performed on the CPU,
-  while numerical computations can leverage GPU acceleration.
-
-**Planned Features:**
-- Full GPU-native sparse factorization (pending GPU-enabled SuperLU_DIST binaries)
-- Support for matrices stored directly on GPU memory
-- Multi-GPU support for very large matrices
-
 ## Preset Options
 
 SuperLU.jl provides pre-configured option objects for common use cases:
@@ -212,9 +143,7 @@ opts = suggest_options(A)
 ### Types
 
 - `SuperLUFactorization(; reuse_symbolic::Bool = true)`: LinearSolve.jl compatible factorization algorithm (requires LinearSolve.jl to be loaded)
-- `SuperLUGPUFactorization(; reuse_symbolic::Bool = true)`: GPU-accelerated factorization (requires CUDA.jl to be loaded)
 - `SuperLUFactorize{Tv}`: Internal factorization object (Tv can be Float32, Float64, ComplexF32, or ComplexF64)
-- `SuperLUGPUFactorize{Tv}`: GPU-accelerated internal factorization object (requires CUDA.jl)
 
 ### Preset Options
 
@@ -233,15 +162,12 @@ opts = suggest_options(A)
 - `issymmetric_approx(A)`: Check if real matrix is approximately symmetric
 - `ishermitian_approx(A)`: Check if complex matrix is approximately Hermitian
 - `suggest_options(A)`: Analyze matrix and suggest appropriate solver options
-- `is_gpu_available()`: Check if GPU acceleration is available
 
 ## Dependencies
 
 This package uses [SuperLU_jll](https://github.com/JuliaBinaryWrappers/SuperLU_jll.jl) for pre-built SuperLU binaries.
 
 The LinearSolve.jl integration is loaded automatically when both packages are available (via Julia's package extension mechanism).
-
-GPU acceleration requires [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) and is loaded automatically when CUDA.jl is available.
 
 ## License
 

@@ -9,7 +9,6 @@ A Julia interface for [SuperLU](https://portal.nersc.gov/project/sparse/superlu/
 - Support for reusing factorization objects with updated matrix values
 - **Preset options** for common scenarios (ill-conditioned systems, performance, accuracy, symmetric matrices)
 - **Symmetry checking utilities** for matrix analysis and algorithm selection
-- **GPU acceleration** via CUDA.jl extension (experimental)
 
 ## Installation
 
