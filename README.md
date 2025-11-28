@@ -163,6 +163,22 @@ opts = suggest_options(A)
 - `ishermitian_approx(A)`: Check if complex matrix is approximately Hermitian
 - `suggest_options(A)`: Analyze matrix and suggest appropriate solver options
 
+## GPU and Distributed Computing
+
+For GPU acceleration and distributed memory parallelism, consider using [SuperLUDIST.jl](https://github.com/JuliaSparse/SuperLUDIST.jl), which wraps the SuperLU_DIST library:
+
+```julia
+using Pkg
+Pkg.add("SuperLUDIST")
+```
+
+SuperLU_DIST is particularly useful for:
+- Very large sparse systems (N > 50,000)
+- Multi-GPU workstations (e.g., servers with NVIDIA L40S GPUs)
+- HPC cluster deployments
+
+See the [GPU and Distributed Computing documentation](https://TendonFFF.github.io/SuperLU.jl/stable/gpu_distributed/) for details.
+
 ## Dependencies
 
 This package uses [SuperLU_jll](https://github.com/JuliaBinaryWrappers/SuperLU_jll.jl) for pre-built SuperLU binaries.

@@ -51,6 +51,6 @@ See the [Getting Started](@ref) guide for more detailed examples.
 ## Contents
 
 ```@contents
-Pages = ["getting_started.md", "options.md", "api.md"]
+Pages = ["getting_started.md", "options.md", "gpu_distributed.md", "api.md"]
 Depth = 2
 ```
