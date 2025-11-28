@@ -347,54 +347,32 @@ opts = SuperLUOptions(
 F = SuperLUFactorize(A; options=opts)
 ```
 
-See also: [`colperm_t`](@ref), [`rowperm_t`](@ref), [`IterRefine_t`](@ref)
+See also: [`colperm_t`](@ref)
 """
 struct SuperLUOptions
     # Permutation options
     col_perm::colperm_t
-    row_perm::rowperm_t
-    
-    # Equilibration
-    equilibrate::Bool
     
     # Pivoting
     diag_pivot_thresh::Float64
     symmetric_mode::Bool
     
-    # Refinement
-    iterative_refinement::IterRefine_t
-    
     # Diagnostics
-    pivot_growth::Bool
-    condition_number::Bool
     print_stats::Bool
-    
-    # Advanced
-    replace_tiny_pivot::Bool
 end
 
 function SuperLUOptions(;
     col_perm::colperm_t = COLAMD,
-    row_perm::rowperm_t = LargeDiag_MC64,
-    equilibrate::Bool = true,
     diag_pivot_thresh::Float64 = 1.0,
     symmetric_mode::Bool = false,
-    iterative_refinement::IterRefine_t = NOREFINE,
-    pivot_growth::Bool = false,
-    condition_number::Bool = false,
-    print_stats::Bool = false,
-    replace_tiny_pivot::Bool = false
+    print_stats::Bool = false
 )
     # Validate diag_pivot_thresh
     if !(0.0 <= diag_pivot_thresh <= 1.0)
         throw(ArgumentError("diag_pivot_thresh must be in [0.0, 1.0], got $diag_pivot_thresh"))
     end
     
-    SuperLUOptions(
-        col_perm, row_perm, equilibrate, diag_pivot_thresh, symmetric_mode,
-        iterative_refinement, pivot_growth, condition_number, print_stats,
-        replace_tiny_pivot
-    )
+    SuperLUOptions(col_perm, diag_pivot_thresh, symmetric_mode, print_stats)
 end
 
 # ============================================================================
@@ -407,23 +385,22 @@ end
 Pre-configured options optimized for solving ill-conditioned systems.
 These settings prioritize numerical stability and accuracy over speed.
 
+Note: SuperLU_MT has fewer options than the sequential SuperLU.
+This preset uses the most stable column ordering.
+
 Equivalent to:
 ```julia
 SuperLUOptions(
-    equilibrate = true,
-    iterative_refinement = SLU_EXTRA,
-    replace_tiny_pivot = true,
-    row_perm = LargeDiag_MC64
+    col_perm = MMD_AT_PLUS_A,
+    diag_pivot_thresh = 1.0
 )
 ```
 
 See also: [`SuperLUOptions`](@ref), [`PERFORMANCE_OPTIONS`](@ref), [`ACCURACY_OPTIONS`](@ref)
 """
 const ILL_CONDITIONED_OPTIONS = SuperLUOptions(
-    equilibrate = true,
-    iterative_refinement = SLU_EXTRA,
-    replace_tiny_pivot = true,
-    row_perm = LargeDiag_MC64
+    col_perm = MMD_AT_PLUS_A,
+    diag_pivot_thresh = 1.0
 )
 
 """
@@ -436,9 +413,7 @@ Equivalent to:
 ```julia
 SuperLUOptions(
     col_perm = COLAMD,
-    row_perm = NOROWPERM,
-    equilibrate = false,
-    iterative_refinement = NOREFINE
+    diag_pivot_thresh = 1.0  # Full partial pivoting for stability
 )
 ```
 
@@ -446,9 +421,7 @@ See also: [`SuperLUOptions`](@ref), [`ILL_CONDITIONED_OPTIONS`](@ref), [`ACCURAC
 """
 const PERFORMANCE_OPTIONS = SuperLUOptions(
     col_perm = COLAMD,
-    row_perm = NOROWPERM,
-    equilibrate = false,
-    iterative_refinement = NOREFINE
+    diag_pivot_thresh = 1.0
 )
 
 """
@@ -461,9 +434,6 @@ Equivalent to:
 ```julia
 SuperLUOptions(
     col_perm = MMD_AT_PLUS_A,
-    row_perm = LargeDiag_MC64,
-    equilibrate = true,
-    iterative_refinement = SLU_DOUBLE,
     diag_pivot_thresh = 1.0
 )
 ```
@@ -472,9 +442,6 @@ See also: [`SuperLUOptions`](@ref), [`ILL_CONDITIONED_OPTIONS`](@ref), [`PERFORM
 """
 const ACCURACY_OPTIONS = SuperLUOptions(
     col_perm = MMD_AT_PLUS_A,
-    row_perm = LargeDiag_MC64,
-    equilibrate = true,
-    iterative_refinement = SLU_DOUBLE,
     diag_pivot_thresh = 1.0
 )
 
@@ -488,8 +455,7 @@ Equivalent to:
 ```julia
 SuperLUOptions(
     col_perm = MMD_AT_PLUS_A,
-    symmetric_mode = true,
-    equilibrate = true
+    symmetric_mode = true
 )
 ```
 
@@ -497,17 +463,17 @@ See also: [`SuperLUOptions`](@ref), [`issymmetric_structure`](@ref)
 """
 const SYMMETRIC_OPTIONS = SuperLUOptions(
     col_perm = MMD_AT_PLUS_A,
-    symmetric_mode = true,
-    equilibrate = true
+    symmetric_mode = true
 )
 
-# apply_options! function is defined after superlu_options_t struct below
+# apply_options! function is defined after superlumt_options_t struct below
 
 # ============================================================================
-# Internal SuperLU Structures
+# Internal SuperLU_MT Structures
 # ============================================================================
 
 # SuperMatrix structure - mutable for C interop
+# Note: SuperLU_MT uses int_t which defaults to int (Cint)
 mutable struct SuperMatrix
     Stype::Stype_t      # Storage type
     Dtype::Dtype_t      # Data type
@@ -535,124 +501,157 @@ struct DNformat
     nzval::Ptr{Cvoid}   # Pointer to values
 end
 
-# SCformat for supernodal column storage (L and U factors)
-struct SCformat
-    nnz::Cint           # Number of nonzeros
-    nsuper::Cint        # Number of supernodes
-    nzval::Ptr{Cvoid}   # Pointer to nonzero values
-    nzval_colptr::Ptr{Cint}  # Column pointers for nzval
-    rowind::Ptr{Cint}   # Row indices
-    rowind_colptr::Ptr{Cint} # Column pointers for rowind
-    col_to_sup::Ptr{Cint}    # Column to supernode mapping
-    sup_to_col::Ptr{Cint}    # Supernode to column mapping
+# SCPformat for supernodal column storage with permutation (L and U factors in SuperLU_MT)
+struct SCPformat
+    nnz::Cint             # Number of nonzeros
+    nsuper::Cint          # Number of supernodes
+    nzval::Ptr{Cvoid}     # Pointer to nonzero values
+    nzval_colbeg::Ptr{Cint}   # Beginning of columns in nzval
+    nzval_colend::Ptr{Cint}   # End of columns in nzval
+    rowind::Ptr{Cint}     # Row indices
+    rowind_colbeg::Ptr{Cint}  # Beginning of columns in rowind
+    rowind_colend::Ptr{Cint}  # End of columns in rowind
+    col_to_sup::Ptr{Cint}     # Column to supernode mapping
+    sup_to_colbeg::Ptr{Cint}  # Supernode to column beginning mapping
+    sup_to_colend::Ptr{Cint}  # Supernode to column ending mapping
 end
 
-# SuperLU options structure - mutable for C interop
-mutable struct superlu_options_t
-    Fact::fact_t
-    Equil::yes_no_t
-    ColPerm::colperm_t
-    Trans::trans_t
-    IterRefine::IterRefine_t
-    DiagPivotThresh::Cdouble
-    SymmetricMode::yes_no_t
-    PivotGrowth::yes_no_t
-    ConditionNumber::yes_no_t
-    PrintStat::yes_no_t
-    RowPerm::rowperm_t
-    ILU_DropRule::Cint
-    ILU_DropTol::Cdouble
-    ILU_FillFactor::Cdouble
-    ILU_Norm::norm_t
-    ILU_FillTol::Cdouble
-    ILU_MILU::milu_t
-    ILU_MILU_Dim::Cdouble
-    ParSymbFact::yes_no_t
-    ReplaceTinyPivot::yes_no_t
-    SolveInitialized::yes_no_t
-    RefineInitialized::yes_no_t
-    num_lookaheads::Cint
-    lookahead_etree::yes_no_t
-    SymPattern::yes_no_t
+# NCPformat for compressed column storage with permutation
+struct NCPformat
+    nnz::Cint           # Number of nonzeros
+    nzval::Ptr{Cvoid}   # Pointer to nonzero values
+    rowind::Ptr{Cint}   # Pointer to row indices
+    colbeg::Ptr{Cint}   # Beginning of columns
+    colend::Ptr{Cint}   # End of columns
+end
+
+# equed_t enumeration for equilibration status
+@enum equed_t::Cint begin
+    NOEQUIL = 0     # No equilibration
+    ROW_EQUIL = 1   # Row equilibration
+    COL_EQUIL = 2   # Column equilibration
+    BOTH_EQUIL = 3  # Both row and column equilibration
+end
+
+# SuperLU_MT options structure - mutable for C interop
+# Based on superlumt_options_t from slu_mt_util.h
+mutable struct superlumt_options_t
+    nprocs::Cint              # Number of processors/threads
+    fact::fact_t              # Factorization type
+    trans::trans_t            # Transpose option
+    refact::yes_no_t          # Is this a refactorization?
+    panel_size::Cint          # Panel size
+    relax::Cint               # Relaxation parameter
+    diag_pivot_thresh::Cdouble  # Diagonal pivot threshold
+    drop_tol::Cdouble         # Drop tolerance (not implemented)
+    ColPerm::colperm_t        # Column permutation strategy
+    usepr::yes_no_t           # Use user-provided row permutation
+    SymmetricMode::yes_no_t   # Symmetric mode
+    PrintStat::yes_no_t       # Print statistics
     
-    # Default constructor creates zeroed struct
-    function superlu_options_t()
-        new(DOFACT, NO, NATURAL, NOTRANS, NOREFINE, 
-            0.0, NO, NO, NO, NO, NOROWPERM, 
-            0, 0.0, 0.0, ONE_NORM, 0.0, SILU, 0.0,
-            NO, NO, NO, NO, 0, NO, NO)
+    # Pointers to permutation arrays (managed by factorization object)
+    perm_c::Ptr{Cint}
+    perm_r::Ptr{Cint}
+    work::Ptr{Cvoid}
+    lwork::Cint
+    
+    # Pointers to structural arrays (computed by sp_colorder)
+    etree::Ptr{Cint}
+    colcnt_h::Ptr{Cint}
+    part_super_h::Ptr{Cint}
+    
+    function superlumt_options_t()
+        new(1, DOFACT, NOTRANS, NO, 
+            8, 4, 1.0, 0.0, COLAMD, NO, NO, NO,
+            C_NULL, C_NULL, C_NULL, 0,
+            C_NULL, C_NULL, C_NULL)
     end
 end
 
 """
-    apply_options!(c_options::superlu_options_t, options::SuperLUOptions)
+    apply_options!(c_options::superlumt_options_t, options::SuperLUOptions, nprocs::Int)
 
-Apply user-friendly options to the internal SuperLU C options structure.
+Apply user-friendly options to the internal SuperLU_MT C options structure.
 """
-function apply_options!(c_options::superlu_options_t, options::SuperLUOptions)
+function apply_options!(c_options::superlumt_options_t, options::SuperLUOptions, nprocs::Int)
+    c_options.nprocs = Cint(nprocs)
     c_options.ColPerm = options.col_perm
-    c_options.RowPerm = options.row_perm
-    c_options.Equil = options.equilibrate ? YES : NO
-    c_options.DiagPivotThresh = options.diag_pivot_thresh
+    c_options.diag_pivot_thresh = options.diag_pivot_thresh
     c_options.SymmetricMode = options.symmetric_mode ? YES : NO
-    c_options.IterRefine = options.iterative_refinement
-    c_options.PivotGrowth = options.pivot_growth ? YES : NO
-    c_options.ConditionNumber = options.condition_number ? YES : NO
     c_options.PrintStat = options.print_stats ? YES : NO
-    c_options.ReplaceTinyPivot = options.replace_tiny_pivot ? YES : NO
     return c_options
 end
 
-# SuperLU statistics structure - mutable for C interop
-mutable struct SuperLUStat_t
-    panel_histo::Ptr{Cint}
-    utime::Ptr{Cdouble}
-    ops::Ptr{Cdouble}
-    TinyPivots::Cint
-    RefineSteps::Cint
-    expansions::Cint
-    
-    function SuperLUStat_t()
-        new(C_NULL, C_NULL, C_NULL, 0, 0, 0)
-    end
-end
-
-# Memory usage structure
-mutable struct mem_usage_t
+# Memory usage structure for SuperLU_MT
+mutable struct superlu_memusage_t
     for_lu::Cfloat
     total_needed::Cfloat
+    expansions::Cint
     
-    function mem_usage_t()
-        new(0.0f0, 0.0f0)
+    function superlu_memusage_t()
+        new(0.0f0, 0.0f0, 0)
     end
 end
 
-# GlobalLU_t structure for storing LU factorization - mutable for C interop
+# GlobalLU_t structure for storing LU factorization in SuperLU_MT
+# This is different from the sequential SuperLU version
 mutable struct GlobalLU_t
-    xsup::Ptr{Cint}
+    xsup::Ptr{Cint}           # Supernode and column mapping
+    xsup_end::Ptr{Cint}
     supno::Ptr{Cint}
-    lsub::Ptr{Cint}
+    lsub::Ptr{Cint}           # Compressed L subscripts
     xlsub::Ptr{Cint}
-    lusup::Ptr{Cvoid}
+    xlsub_end::Ptr{Cint}
+    lusup::Ptr{Cvoid}         # L supernodes (type depends on precision)
     xlusup::Ptr{Cint}
-    ucol::Ptr{Cvoid}
-    xucol::Ptr{Cint}
+    xlusup_end::Ptr{Cint}
+    ucol::Ptr{Cvoid}          # U columns (type depends on precision)
     usub::Ptr{Cint}
     xusub::Ptr{Cint}
-    nzlmax::Cint
-    nzumax::Cint
-    nzlumax::Cint
-    n::Cint
-    LUnum_tempv::Cint
-    MemModel::Cint
-    num_expansions::Cint
-    expanders::Ptr{Cvoid}
-    stack::Ptr{Cvoid}
+    xusub_end::Ptr{Cint}
+    nsuper::Cint              # Current supernode number
+    nextl::Cint               # Next position in lsub
+    nextu::Cint               # Next position in usub/ucol
+    nextlu::Cint              # Next position in lusup
+    nzlmax::Cint              # Current max size of lsub
+    nzumax::Cint              # Current max size of ucol
+    nzlumax::Cint             # Current max size of lusup
+    map_in_sup::Ptr{Cint}     # Memory management for L supernodes
+    dynamic_snode_bound::Cint
     
     function GlobalLU_t()
-        new(C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, 
-            C_NULL, C_NULL, C_NULL, C_NULL, 0, 0, 0, 0, 0, 0, 0, 
-            C_NULL, C_NULL)
+        new(C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL,
+            C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL,
+            0, 0, 0, 0, 0, 0, 0, C_NULL, 0)
+    end
+end
+
+# Gstat_t structure for SuperLU_MT statistics
+# This is a simplified version - full structure has more fields for profiling
+mutable struct Gstat_t
+    panel_histo::Ptr{Cint}
+    utime::Ptr{Cdouble}
+    ops::Ptr{Cvoid}           # flops_t*
+    procstat::Ptr{Cvoid}      # procstat_t*
+    panstat::Ptr{Cvoid}       # panstat_t*
+    num_panels::Cint
+    dom_flopcnt::Cfloat
+    flops_last_P_panels::Cfloat
+    stat_relax::Ptr{Cvoid}    # stat_relax_t*
+    stat_col::Ptr{Cvoid}      # stat_col_t*
+    stat_snode::Ptr{Cvoid}    # stat_snode_t*
+    panhows::Ptr{Cint}
+    cp_panel::Ptr{Cvoid}      # cp_panel_t*
+    desc_eft::Ptr{Cvoid}      # desc_eft_t*
+    cp_firstkid::Ptr{Cint}
+    cp_nextkid::Ptr{Cint}
+    height::Ptr{Cint}
+    flops_by_height::Ptr{Cfloat}
+    
+    function Gstat_t()
+        new(C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, 0, 0.0f0, 0.0f0,
+            C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL,
+            C_NULL, C_NULL, C_NULL, C_NULL)
     end
 end
 

@@ -2,7 +2,7 @@ module SuperLU
 
 using LinearAlgebra
 using SparseArrays
-using SuperLU_jll
+using SuperLU_MT_jll
 
 # Include submodules
 include("types.jl")
@@ -28,13 +28,7 @@ export SuperLUTypes
 export trans_t, NOTRANS, TRANS, CONJ
 
 # Export column permutation strategies
-export colperm_t, NATURAL, MMD_ATA, MMD_AT_PLUS_A, COLAMD, METIS_AT_PLUS_A
-
-# Export row permutation strategies
-export rowperm_t, NOROWPERM, LargeDiag_MC64, LargeDiag_HWPM
-
-# Export iterative refinement options
-export IterRefine_t, NOREFINE, SLU_SINGLE, SLU_DOUBLE, SLU_EXTRA
+export colperm_t, NATURAL, MMD_ATA, MMD_AT_PLUS_A, COLAMD
 
 # Export yes/no enum for checking options
 export yes_no_t, YES, NO
