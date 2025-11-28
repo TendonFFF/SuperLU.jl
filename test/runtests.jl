@@ -419,3 +419,126 @@ end
     
     @test norm(A * sol.u - b) < 1e-8
 end
+
+@testitem "nthreads setting" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a sparse matrix
+    A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = [1.0, 2.0, 3.0]
+    
+    # Test with single thread (default)
+    F1 = SuperLU.SuperLUFactorize(A)
+    @test F1.nthreads == 1
+    SuperLU.factorize!(F1)
+    x1 = copy(b)
+    SuperLU.superlu_solve!(F1, x1)
+    @test norm(A * x1 - b) < 1e-10
+    
+    # Test with multiple threads
+    F2 = SuperLU.SuperLUFactorize(A; nthreads=2)
+    @test F2.nthreads == 2
+    SuperLU.factorize!(F2)
+    x2 = copy(b)
+    SuperLU.superlu_solve!(F2, x2)
+    @test norm(A * x2 - b) < 1e-10
+    
+    F4 = SuperLU.SuperLUFactorize(A; nthreads=4)
+    @test F4.nthreads == 4
+    SuperLU.factorize!(F4)
+    x4 = copy(b)
+    SuperLU.superlu_solve!(F4, x4)
+    @test norm(A * x4 - b) < 1e-10
+    
+    # Test invalid nthreads
+    @test_throws ArgumentError SuperLU.SuperLUFactorize(A; nthreads=0)
+    @test_throws ArgumentError SuperLU.SuperLUFactorize(A; nthreads=-1)
+end
+
+@testitem "Multithreaded solve on larger system" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a larger sparse system where threading may be beneficial
+    n = 2000
+    # Create a sparse diagonally dominant matrix with multiple diagonals
+    A = spdiagm(-2 => fill(-0.5, n-2),
+                -1 => fill(-1.0, n-1), 
+                 0 => fill(6.0, n), 
+                 1 => fill(-1.0, n-1),
+                 2 => fill(-0.5, n-2))
+    b = randn(n)
+    
+    # Solve with 1 thread
+    F1 = SuperLU.SuperLUFactorize(A; nthreads=1)
+    SuperLU.factorize!(F1)
+    x1 = copy(b)
+    SuperLU.superlu_solve!(F1, x1)
+    @test norm(A * x1 - b) < 1e-8
+    
+    # Solve with 4 threads - should produce the same result
+    F4 = SuperLU.SuperLUFactorize(A; nthreads=4)
+    SuperLU.factorize!(F4)
+    x4 = copy(b)
+    SuperLU.superlu_solve!(F4, x4)
+    @test norm(A * x4 - b) < 1e-8
+    
+    # Solutions should be identical (up to numerical precision)
+    @test norm(x1 - x4) < 1e-10
+end
+
+@testitem "Multithreaded performance comparison" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a larger sparse system for timing comparison
+    n = 5000
+    # Create a sparse banded matrix
+    A = spdiagm(-5 => fill(-0.2, n-5),
+                -2 => fill(-0.5, n-2),
+                -1 => fill(-1.0, n-1), 
+                 0 => fill(8.0, n), 
+                 1 => fill(-1.0, n-1),
+                 2 => fill(-0.5, n-2),
+                 5 => fill(-0.2, n-5))
+    b = randn(n)
+    
+    # Warm-up run
+    F_warmup = SuperLU.SuperLUFactorize(A; nthreads=1)
+    SuperLU.factorize!(F_warmup)
+    
+    # Time with 1 thread
+    t1 = @elapsed begin
+        for _ in 1:3
+            F = SuperLU.SuperLUFactorize(A; nthreads=1)
+            SuperLU.factorize!(F)
+            x = copy(b)
+            SuperLU.superlu_solve!(F, x)
+        end
+    end
+    
+    # Time with multiple threads (use available threads, at least 2)
+    nthreads = max(2, min(4, Threads.nthreads()))
+    t_mt = @elapsed begin
+        for _ in 1:3
+            F = SuperLU.SuperLUFactorize(A; nthreads=nthreads)
+            SuperLU.factorize!(F)
+            x = copy(b)
+            SuperLU.superlu_solve!(F, x)
+        end
+    end
+    
+    # Both should produce correct solutions
+    F_final = SuperLU.SuperLUFactorize(A; nthreads=nthreads)
+    SuperLU.factorize!(F_final)
+    x_final = copy(b)
+    SuperLU.superlu_solve!(F_final, x_final)
+    @test norm(A * x_final - b) < 1e-8
+    
+    # Print timing info (not a strict test since threading benefit depends on hardware)
+    @info "Timing comparison" single_thread_time=t1 multi_thread_time=t_mt nthreads=nthreads speedup=t1/t_mt
+end
