@@ -314,7 +314,7 @@ opts = ILL_CONDITIONED_OPTIONS
 
 ### Using Multiple Threads (`nthreads`)
 
-SuperLU.jl supports a `nthreads` parameter for future multi-threaded factorization via SuperLU_MT. When using multiple threads (`nthreads > 1`), SuperLU requires single-threaded BLAS to avoid thread conflicts.
+SuperLU.jl exposes an `nthreads` parameter for future multi-threaded factorization. When `nthreads > 1`, BLAS is automatically set to single-threaded mode during SuperLU operations.
 
 ```julia
 using SuperLU
@@ -325,12 +325,16 @@ A = sparse([4.0 1.0; 1.0 4.0])
 # Single-threaded (default, no BLAS threading changes)
 F1 = SuperLUFactorize(A; nthreads=1)
 
-# Multi-threaded (BLAS automatically set to 1 thread during operations)
+# Multi-threaded request (BLAS set to 1 thread during operations)
 F2 = SuperLUFactorize(A; nthreads=4)
 ```
 
-!!! note
-    Currently, full SuperLU_MT support is not yet implemented. Using `nthreads > 1` will emit a warning. The BLAS threading control is already in place for when SuperLU_MT support is added.
+!!! warning "Current Limitations"
+    The current implementation uses **sequential SuperLU** from `SuperLU_jll`. True parallel 
+    factorization would require integrating `SuperLU_MT_jll`, which provides the multi-threaded 
+    library with a different API (`pdgssv`/`pdgssvx` functions that take `nprocs` as the first 
+    argument). When `nthreads > 1`, the factorization still runs sequentially, but BLAS is set 
+    to single-threaded mode as preparation for future SuperLU_MT integration.
 
 ### BLAS Threading Behavior
 
@@ -339,6 +343,8 @@ When `nthreads > 1`:
 1. Before `factorize!` or `superlu_solve!` operations, BLAS threads are temporarily set to 1
 2. The original BLAS thread count is restored after the operation completes
 3. This happens automatically and is thread-safe (uses try-finally)
+
+This behavior is required because SuperLU_MT manages its own parallelism and expects single-threaded BLAS to avoid thread contention.
 
 ### Manual BLAS Threading Control
 
@@ -375,6 +381,6 @@ b = [1.0, 2.0]
 
 prob = LinearProblem(A, b)
 
-# With custom threading
+# With threading option (currently uses sequential SuperLU with single-threaded BLAS)
 sol = solve(prob, SuperLUFactorization(nthreads=4))
 ```

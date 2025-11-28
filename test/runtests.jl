@@ -511,7 +511,9 @@ end
     
     original_threads = BLAS.get_num_threads()
     
-    # Test with nthreads > 1 (currently warns but should work)
+    # Test with nthreads > 1
+    # Note: Currently uses sequential SuperLU but sets BLAS to single-threaded
+    # Full SuperLU_MT parallelization requires implementing pdgssv/pdgssvx wrappers
     F = SuperLU.SuperLUFactorize(A; nthreads=2)
     SuperLU.factorize!(F)
     x = copy(b)
