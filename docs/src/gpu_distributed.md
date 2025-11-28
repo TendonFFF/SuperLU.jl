@@ -70,7 +70,7 @@ grid = Grid{Int64}(nprow, npcol, MPI.COMM_WORLD)
 
 GPU acceleration is most beneficial for:
 
-- **Large sparse systems** (N > 10,000 - 50,000)
+- **Large sparse systems** (N > 50,000, with noticeable benefits starting around N > 10,000)
 - **Matrices with dense supernodes** (common in FEM/CFD applications)
 - **Multiple solves with the same factorization**
 
@@ -81,8 +81,9 @@ For smaller systems, the overhead of GPU data transfer may outweigh the computat
 | Use Case | Recommended Package |
 |----------|---------------------|
 | Small to medium systems (N < 10,000) | SuperLU.jl |
-| Single-threaded CPU only | SuperLU.jl |
+| Medium systems (10,000 < N < 50,000) | Either (benchmark to decide) |
 | Large systems (N > 50,000) | SuperLUDIST.jl |
+| Single-threaded CPU only | SuperLU.jl |
 | Multi-GPU workstation | SuperLUDIST.jl |
 | HPC cluster / distributed memory | SuperLUDIST.jl |
 | Need maximum compatibility | SuperLU.jl |
