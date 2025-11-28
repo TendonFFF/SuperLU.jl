@@ -522,7 +522,7 @@ end
     end
     
     # Time with multiple threads (use available threads, at least 2)
-    nthreads = max(2, min(4, Threads.nthreads()))
+    nthreads = 4#max(2, min(4, Threads.nthreads()))
     t_mt = @elapsed begin
         for _ in 1:3
             F = SuperLU.SuperLUFactorize(A; nthreads=nthreads)
