@@ -1,6 +1,6 @@
 name = "SuperLU"
 uuid = "5e54adbb-e59a-4a64-a24f-c65aa99e667d"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Your Name <your.email@example.com>"]
 
 [deps]

@@ -55,26 +55,23 @@ Create a new factorization object for the sparse matrix `A`.
 - `A`: Sparse matrix to factorize (must be square)
 - `options`: Solver options (see [`SuperLUOptions`](@ref))
 - `nthreads`: Number of threads for factorization (default: 1).
-  Currently, only sequential factorization is available. When `nthreads > 1`,
-  BLAS is set to single-threaded mode during operations, but the factorization
-  itself still uses sequential SuperLU. Full parallel factorization requires
-  SuperLU_MT integration which uses a different API (pdgssv/pdgssvx).
+  Currently uses sequential SuperLU with BLAS set to single-threaded mode 
+  when `nthreads > 1`. Full parallel factorization via SuperLU_MT is pending.
 
 # Example
 ```julia
 using SuperLU, SparseArrays
 
-# Complex double precision
-A = sparse([1.0+1.0im 2.0+0im; 3.0-1.0im 4.0+2.0im])
+# Single-threaded (default)
+A = sparse([4.0 1.0; 1.0 3.0])
 F = SuperLUFactorize(A)
 factorize!(F)
-x = superlu_solve(F, [1.0+0im, 2.0+1.0im])
+x = superlu_solve(F, [1.0, 2.0])
 
-# Real double precision
-A_real = sparse([4.0 1.0; 1.0 3.0])
-F_real = SuperLUFactorize(A_real)
-factorize!(F_real)
-x_real = superlu_solve(F_real, [1.0, 2.0])
+# With nthreads > 1 (BLAS set to single-threaded, factorization still sequential)
+F_mt = SuperLUFactorize(A; nthreads=4)
+factorize!(F_mt)
+x_mt = superlu_solve(F_mt, [1.0, 2.0])
 ```
 
 See also: [`SuperLUOptions`](@ref), [`factorize!`](@ref), [`superlu_solve!`](@ref)
@@ -130,11 +127,11 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
         
         # Warn about multi-threading limitations
         # Note: SuperLU_MT (the multi-threaded library) has a different API than SuperLU.
-        # Currently we only use SuperLU_jll which provides sequential SuperLU.
-        # To fully support multi-threading, we would need to use SuperLU_MT_jll and
-        # implement wrappers for pdgssv/pdgssvx which take nprocs as first argument.
+        # The SuperLU_MT_jll binary has ABI compatibility issues (uses different int sizes
+        # depending on build configuration). Until these are resolved, we use sequential
+        # SuperLU with BLAS threading control.
         if nthreads > 1
-            @warn "Multi-threaded factorization (nthreads=$nthreads) is not yet implemented. The current implementation uses sequential SuperLU. BLAS threads will be set to 1 during operations to prepare for future SuperLU_MT integration. Full SuperLU_MT support requires implementing wrappers for the parallel pdgssv/pdgssvx functions." maxlog=1
+            @warn "Multi-threaded factorization (nthreads=$nthreads) is not yet available. The current implementation uses sequential SuperLU with single-threaded BLAS. Full SuperLU_MT support is pending resolution of ABI compatibility issues with the SuperLU_MT_jll binary." maxlog=1
         end
         
         # Convert to 0-based indexing for C

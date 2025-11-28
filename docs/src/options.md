@@ -314,7 +314,7 @@ opts = ILL_CONDITIONED_OPTIONS
 
 ### Using Multiple Threads (`nthreads`)
 
-SuperLU.jl exposes an `nthreads` parameter for future multi-threaded factorization. When `nthreads > 1`, BLAS is automatically set to single-threaded mode during SuperLU operations.
+SuperLU.jl exposes an `nthreads` parameter for multi-threaded factorization. When `nthreads > 1`, BLAS is automatically set to single-threaded mode during SuperLU operations to avoid thread conflicts.
 
 ```julia
 using SuperLU
@@ -325,16 +325,17 @@ A = sparse([4.0 1.0; 1.0 4.0])
 # Single-threaded (default, no BLAS threading changes)
 F1 = SuperLUFactorize(A; nthreads=1)
 
-# Multi-threaded request (BLAS set to 1 thread during operations)
+# With nthreads > 1 (BLAS set to 1 thread during operations)
 F2 = SuperLUFactorize(A; nthreads=4)
 ```
 
 !!! warning "Current Limitations"
-    The current implementation uses **sequential SuperLU** from `SuperLU_jll`. True parallel 
-    factorization would require integrating `SuperLU_MT_jll`, which provides the multi-threaded 
-    library with a different API (`pdgssv`/`pdgssvx` functions that take `nprocs` as the first 
-    argument). When `nthreads > 1`, the factorization still runs sequentially, but BLAS is set 
-    to single-threaded mode as preparation for future SuperLU_MT integration.
+    The current implementation uses **sequential SuperLU** from `SuperLU_jll` with 
+    single-threaded BLAS when `nthreads > 1`. Full parallel factorization via 
+    `SuperLU_MT_jll` is pending due to ABI compatibility issues in the binary 
+    (different integer sizes depending on build configuration). The factorization 
+    still runs sequentially, but BLAS threading is controlled to prepare for future 
+    SuperLU_MT integration.
 
 ### BLAS Threading Behavior
 
@@ -344,7 +345,7 @@ When `nthreads > 1`:
 2. The original BLAS thread count is restored after the operation completes
 3. This happens automatically and is thread-safe (uses try-finally)
 
-This behavior is required because SuperLU_MT manages its own parallelism and expects single-threaded BLAS to avoid thread contention.
+This behavior prepares for future SuperLU_MT integration, which manages its own parallelism and expects single-threaded BLAS to avoid thread contention.
 
 ### Manual BLAS Threading Control
 
