@@ -499,16 +499,9 @@ end
     n = 1000
     # Create a sparse banded matrix
     A = sprand(n, n, 1/n) + I
-    # A = spdiagm(-5 => fill(-0.2, n-5),
-    #             -2 => fill(-0.5, n-2),
-    #             -1 => fill(-1.0, n-1), 
-    #              0 => fill(8.0, n), 
-    #              1 => fill(-1.0, n-1),
-    #              2 => fill(-0.5, n-2),
-    #              5 => fill(-0.2, n-5))
     b = randn(n)
     
-    # Warm-up run
+    # Warm-up run to avoid compilation time
     F_warmup = SuperLU.SuperLUFactorize(A; nthreads=1)
     SuperLU.factorize!(F_warmup)
     
