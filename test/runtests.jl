@@ -141,31 +141,21 @@ end
     # Test default options
     opts = SuperLUOptions()
     @test opts.col_perm == COLAMD
-    @test opts.row_perm == LargeDiag_MC64
-    @test opts.equilibrate == true
     @test opts.diag_pivot_thresh == 1.0
     @test opts.symmetric_mode == false
-    @test opts.iterative_refinement == NOREFINE
-    @test opts.pivot_growth == false
-    @test opts.condition_number == false
     @test opts.print_stats == false
-    @test opts.replace_tiny_pivot == false
     
     # Test custom options
     opts2 = SuperLUOptions(
-        col_perm = METIS_AT_PLUS_A,
-        row_perm = NOROWPERM,
-        equilibrate = false,
+        col_perm = MMD_AT_PLUS_A,
         diag_pivot_thresh = 0.5,
         symmetric_mode = true,
-        iterative_refinement = SLU_DOUBLE
+        print_stats = true
     )
-    @test opts2.col_perm == METIS_AT_PLUS_A
-    @test opts2.row_perm == NOROWPERM
-    @test opts2.equilibrate == false
+    @test opts2.col_perm == MMD_AT_PLUS_A
     @test opts2.diag_pivot_thresh == 0.5
     @test opts2.symmetric_mode == true
-    @test opts2.iterative_refinement == SLU_DOUBLE
+    @test opts2.print_stats == true
     
     # Test invalid diag_pivot_thresh
     @test_throws ArgumentError SuperLUOptions(diag_pivot_thresh = -0.1)
@@ -192,52 +182,24 @@ end
         @test F.options.ColPerm == col_perm
     end
     
-    # Test with various row permutation options
-    for row_perm in [NOROWPERM, LargeDiag_MC64]
-        opts = SuperLUOptions(row_perm = row_perm)
-        F = SuperLU.SuperLUFactorize(A; options=opts)
-        @test F.user_options.row_perm == row_perm
-        @test F.options.RowPerm == row_perm
-    end
-    
-    # Test equilibrate option
-    opts_eq = SuperLUOptions(equilibrate = true)
-    F_eq = SuperLU.SuperLUFactorize(A; options=opts_eq)
-    @test F_eq.options.Equil == SuperLU.YES
-    
-    opts_no_eq = SuperLUOptions(equilibrate = false)
-    F_no_eq = SuperLU.SuperLUFactorize(A; options=opts_no_eq)
-    @test F_no_eq.options.Equil == SuperLU.NO
-    
-    # Test iterative refinement options
-    for iter_ref in [NOREFINE, SLU_SINGLE, SLU_DOUBLE, SLU_EXTRA]
-        opts = SuperLUOptions(iterative_refinement = iter_ref)
-        F = SuperLU.SuperLUFactorize(A; options=opts)
-        @test F.options.IterRefine == iter_ref
-    end
-    
     # Test diag_pivot_thresh
     opts_thresh = SuperLUOptions(diag_pivot_thresh = 0.7)
     F_thresh = SuperLU.SuperLUFactorize(A; options=opts_thresh)
-    @test F_thresh.options.DiagPivotThresh ≈ 0.7
+    @test F_thresh.options.diag_pivot_thresh ≈ 0.7
     
     # Test symmetric_mode
     opts_sym = SuperLUOptions(symmetric_mode = true)
     F_sym = SuperLU.SuperLUFactorize(A; options=opts_sym)
     @test F_sym.options.SymmetricMode == SuperLU.YES
     
-    # Test diagnostic options
-    opts_diag = SuperLUOptions(
-        pivot_growth = true,
-        condition_number = true,
-        print_stats = false,
-        replace_tiny_pivot = true
-    )
-    F_diag = SuperLU.SuperLUFactorize(A; options=opts_diag)
-    @test F_diag.options.PivotGrowth == SuperLU.YES
-    @test F_diag.options.ConditionNumber == SuperLU.YES
-    @test F_diag.options.PrintStat == SuperLU.NO
-    @test F_diag.options.ReplaceTinyPivot == SuperLU.YES
+    # Test print_stats option
+    opts_print = SuperLUOptions(print_stats = true)
+    F_print = SuperLU.SuperLUFactorize(A; options=opts_print)
+    @test F_print.options.PrintStat == SuperLU.YES
+    
+    opts_no_print = SuperLUOptions(print_stats = false)
+    F_no_print = SuperLU.SuperLUFactorize(A; options=opts_no_print)
+    @test F_no_print.options.PrintStat == SuperLU.NO
 end
 
 @testitem "Solve with custom options" begin
@@ -251,10 +213,7 @@ end
     b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
     
     # Test with custom options
-    opts = SuperLUOptions(
-        col_perm = MMD_AT_PLUS_A,
-        equilibrate = true
-    )
+    opts = SuperLUOptions(col_perm = MMD_AT_PLUS_A)
     
     F = SuperLU.SuperLUFactorize(A; options=opts)
     SuperLU.factorize!(F)
@@ -276,10 +235,7 @@ end
     b = [1.0+0im, 2.0+1.0im, 3.0-1.0im]
     
     # Test with custom options via LinearSolve
-    opts = SuperLUOptions(
-        col_perm = MMD_AT_PLUS_A,
-        iterative_refinement = SLU_DOUBLE
-    )
+    opts = SuperLUOptions(col_perm = MMD_AT_PLUS_A)
     
     prob = LinearProblem(A, b)
     sol = solve(prob, SuperLUFactorization(options=opts))
@@ -369,9 +325,8 @@ end
     b = [1.0, 2.0, 3.0]
     
     # Test ILL_CONDITIONED_OPTIONS
-    @test ILL_CONDITIONED_OPTIONS.equilibrate == true
-    @test ILL_CONDITIONED_OPTIONS.iterative_refinement == SLU_EXTRA
-    @test ILL_CONDITIONED_OPTIONS.replace_tiny_pivot == true
+    @test ILL_CONDITIONED_OPTIONS.col_perm == MMD_AT_PLUS_A
+    @test ILL_CONDITIONED_OPTIONS.diag_pivot_thresh == 1.0
     
     F1 = SuperLU.SuperLUFactorize(A; options=ILL_CONDITIONED_OPTIONS)
     SuperLU.factorize!(F1)
@@ -380,9 +335,8 @@ end
     @test norm(A * x1 - b) < 1e-10
     
     # Test PERFORMANCE_OPTIONS
-    @test PERFORMANCE_OPTIONS.equilibrate == false
-    @test PERFORMANCE_OPTIONS.iterative_refinement == NOREFINE
-    @test PERFORMANCE_OPTIONS.row_perm == NOROWPERM
+    @test PERFORMANCE_OPTIONS.col_perm == COLAMD
+    @test PERFORMANCE_OPTIONS.diag_pivot_thresh == 0.0
     
     F2 = SuperLU.SuperLUFactorize(A; options=PERFORMANCE_OPTIONS)
     SuperLU.factorize!(F2)
@@ -391,8 +345,8 @@ end
     @test norm(A * x2 - b) < 1e-10
     
     # Test ACCURACY_OPTIONS
-    @test ACCURACY_OPTIONS.iterative_refinement == SLU_DOUBLE
     @test ACCURACY_OPTIONS.col_perm == MMD_AT_PLUS_A
+    @test ACCURACY_OPTIONS.diag_pivot_thresh == 1.0
     
     F3 = SuperLU.SuperLUFactorize(A; options=ACCURACY_OPTIONS)
     SuperLU.factorize!(F3)

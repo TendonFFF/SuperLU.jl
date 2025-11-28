@@ -1,4 +1,4 @@
-# LinearSolve.jl integration for SuperLU
+# LinearSolve.jl integration for SuperLU_MT
 # This provides a SuperLUFactorization algorithm that can be used with LinearSolve.jl
 
 using LinearSolve
@@ -11,7 +11,7 @@ import LinearSolve: LinearCache, AbstractFactorization,
 """
     SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions(), nthreads::Int = 1)
 
-A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
+A LinearSolve.jl compatible factorization algorithm using SuperLU_MT for sparse matrices.
 Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
 
 ## Arguments
@@ -20,9 +20,8 @@ Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
   sparsity pattern. If `false`, a complete factorization is performed each time.
 - `options::SuperLUOptions = SuperLUOptions()`: Solver configuration options.
   See [`SuperLUOptions`](@ref) for available settings.
-- `nthreads::Int = 1`: Number of threads for factorization (default: 1).
-  Currently, only sequential factorization is fully supported.
-  Multi-threaded factorization via SuperLU_MT is experimental.
+- `nthreads::Int = 1`: Number of threads for parallel factorization (default: 1).
+  SuperLU_MT supports multi-threaded LU factorization for improved performance.
 
 ## Example
 ```julia
@@ -33,12 +32,12 @@ b = [1.0+0im, 2.0]
 prob = LinearProblem(A, b)
 sol = solve(prob, SuperLUFactorization())
 
-# With custom options
-opts = SuperLUOptions(col_perm = METIS_AT_PLUS_A, equilibrate = true)
-sol = solve(prob, SuperLUFactorization(options = opts))
+# With custom options and 4 threads
+opts = SuperLUOptions(col_perm = METIS_AT_PLUS_A)
+sol = solve(prob, SuperLUFactorization(options = opts, nthreads = 4))
 
-# With preset options for ill-conditioned systems
-sol = solve(prob, SuperLUFactorization(options = ILL_CONDITIONED_OPTIONS))
+# With preset options for symmetric matrices
+sol = solve(prob, SuperLUFactorization(options = SYMMETRIC_OPTIONS))
 ```
 
 See also: [`SuperLUOptions`](@ref), [`SuperLUFactorize`](@ref)
