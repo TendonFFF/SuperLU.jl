@@ -309,3 +309,72 @@ opts = SuperLUOptions(
 # Or use the preset:
 opts = ILL_CONDITIONED_OPTIONS
 ```
+
+## Threading Configuration
+
+### Using Multiple Threads (`nthreads`)
+
+SuperLU.jl supports a `nthreads` parameter for future multi-threaded factorization via SuperLU_MT. When using multiple threads (`nthreads > 1`), SuperLU requires single-threaded BLAS to avoid thread conflicts.
+
+```julia
+using SuperLU
+using SparseArrays
+
+A = sparse([4.0 1.0; 1.0 4.0])
+
+# Single-threaded (default, no BLAS threading changes)
+F1 = SuperLUFactorize(A; nthreads=1)
+
+# Multi-threaded (BLAS automatically set to 1 thread during operations)
+F2 = SuperLUFactorize(A; nthreads=4)
+```
+
+!!! note
+    Currently, full SuperLU_MT support is not yet implemented. Using `nthreads > 1` will emit a warning. The BLAS threading control is already in place for when SuperLU_MT support is added.
+
+### BLAS Threading Behavior
+
+When `nthreads > 1`:
+
+1. Before `factorize!` or `superlu_solve!` operations, BLAS threads are temporarily set to 1
+2. The original BLAS thread count is restored after the operation completes
+3. This happens automatically and is thread-safe (uses try-finally)
+
+### Manual BLAS Threading Control
+
+For advanced users who need more control, the `with_single_threaded_blas` helper function is exported:
+
+```julia
+using SuperLU
+using LinearAlgebra
+
+# Save current BLAS threads
+original = BLAS.get_num_threads()
+
+# Run code with single-threaded BLAS
+result = with_single_threaded_blas(4) do  # nthreads=4 triggers BLAS=1
+    # Your code here runs with BLAS.get_num_threads() == 1
+    perform_superlu_operations()
+end
+
+# BLAS threads are automatically restored
+@assert BLAS.get_num_threads() == original
+```
+
+### LinearSolve.jl Integration
+
+Threading options can also be passed through the LinearSolve.jl interface:
+
+```julia
+using SuperLU
+using LinearSolve
+using SparseArrays
+
+A = sparse([4.0 1.0; 1.0 4.0])
+b = [1.0, 2.0]
+
+prob = LinearProblem(A, b)
+
+# With custom threading
+sol = solve(prob, SuperLUFactorization(nthreads=4))
+```

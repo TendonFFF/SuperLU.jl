@@ -12,6 +12,9 @@ include("interface.jl")
 # Export main types and functions
 export SuperLUFactorize, factorize!, superlu_solve!, superlu_solve, update_matrix!
 
+# Export BLAS threading helper for advanced users
+export with_single_threaded_blas
+
 # Export options
 export SuperLUOptions
 

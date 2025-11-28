@@ -465,3 +465,61 @@ end
     
     @test norm(A * sol.u - b) < 1e-8
 end
+
+@testitem "BLAS threading control" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Test with_single_threaded_blas helper function
+    original_threads = BLAS.get_num_threads()
+    
+    # Test with nthreads=1 (should not change BLAS threads)
+    result = with_single_threaded_blas(1) do
+        BLAS.get_num_threads()
+    end
+    @test result == original_threads
+    @test BLAS.get_num_threads() == original_threads
+    
+    # Test with nthreads > 1 (should temporarily set BLAS to 1 thread)
+    result = with_single_threaded_blas(4) do
+        BLAS.get_num_threads()
+    end
+    @test result == 1
+    @test BLAS.get_num_threads() == original_threads  # Should be restored
+    
+    # Test that BLAS threads are restored even on error
+    try
+        with_single_threaded_blas(4) do
+            @test BLAS.get_num_threads() == 1
+            error("Test error")
+        end
+    catch e
+        @test isa(e, ErrorException)
+    end
+    @test BLAS.get_num_threads() == original_threads  # Should still be restored
+end
+
+@testitem "Multi-threaded factorization with BLAS control" begin
+    using SuperLU
+    using SparseArrays
+    using LinearAlgebra
+    
+    # Create a simple sparse matrix
+    A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0])
+    b = [1.0, 2.0, 3.0]
+    
+    original_threads = BLAS.get_num_threads()
+    
+    # Test with nthreads > 1 (currently warns but should work)
+    F = SuperLU.SuperLUFactorize(A; nthreads=2)
+    SuperLU.factorize!(F)
+    x = copy(b)
+    SuperLU.superlu_solve!(F, x)
+    
+    # Verify BLAS threads are restored after operations
+    @test BLAS.get_num_threads() == original_threads
+    
+    # Verify solution is correct
+    @test norm(A * x - b) < 1e-10
+end

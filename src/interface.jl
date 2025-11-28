@@ -1,5 +1,31 @@
 # High-level Julia interface for SuperLU
 
+import LinearAlgebra.BLAS
+
+"""
+    with_single_threaded_blas(f, nthreads::Int)
+
+Execute function `f` with BLAS set to single-threaded mode if `nthreads > 1`.
+SuperLU_MT requires single-threaded BLAS to avoid thread conflicts when using
+multiple threads for factorization.
+
+This function saves the current BLAS thread count, sets it to 1 if needed,
+executes `f`, and restores the original thread count.
+"""
+function with_single_threaded_blas(f, nthreads::Int)
+    if nthreads > 1
+        old_blas_threads = BLAS.get_num_threads()
+        try
+            BLAS.set_num_threads(1)
+            return f()
+        finally
+            BLAS.set_num_threads(old_blas_threads)
+        end
+    else
+        return f()
+    end
+end
+
 """
     SuperLUFactorize
 
@@ -164,47 +190,53 @@ SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=Sup
     factorize!(F::SuperLUFactorize)
 
 Perform LU factorization using SuperLU.
+
+When using multi-threaded factorization (`nthreads > 1`), BLAS is temporarily
+set to single-threaded mode to avoid thread conflicts with SuperLU_MT.
 """
 function factorize!(F::SuperLUFactorize{Tv}) where Tv
-    # Initialize statistics
-    stat = SuperLUStat_t()
-    StatInit!(stat)
-    
-    # Set options - always do full factorization with simple driver
-    F.options.Fact = DOFACT
-    F.options.PrintStat = NO  # Disable printing
-    
-    # Create dummy B matrix for gssv (we only want factorization)
-    x = zeros(Tv, F.n)
-    B_mat = SuperMatrix()
-    dtype = slu_dtype(Tv)
-    Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(x), Cint(F.n),
-                         SLU_DN, dtype, SLU_GE)
-    
-    # Perform factorization using type-generic wrapper
-    info = Ref{Cint}(0)
-    try
-        gssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
-              F.L, F.U, B_mat, stat, info, Tv)
-    finally
-        # Clean up temporary B matrix
-        Destroy_SuperMatrix_Store!(B_mat)
-        # Clean up statistics
-        StatFree!(stat)
-    end
-    
-    if info[] != 0
-        if info[] < 0
-            error("SuperLU: illegal argument at position $(abs(info[]))")
-        else
-            error("SuperLU: singular matrix, U($(info[]),$(info[])) is exactly zero")
+    # Use single-threaded BLAS when nthreads > 1 to avoid thread conflicts
+    with_single_threaded_blas(F.nthreads) do
+        # Initialize statistics
+        stat = SuperLUStat_t()
+        StatInit!(stat)
+        
+        # Set options - always do full factorization with simple driver
+        F.options.Fact = DOFACT
+        F.options.PrintStat = NO  # Disable printing
+        
+        # Create dummy B matrix for gssv (we only want factorization)
+        x = zeros(Tv, F.n)
+        B_mat = SuperMatrix()
+        dtype = slu_dtype(Tv)
+        Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(x), Cint(F.n),
+                             SLU_DN, dtype, SLU_GE)
+        
+        # Perform factorization using type-generic wrapper
+        info = Ref{Cint}(0)
+        try
+            gssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
+                  F.L, F.U, B_mat, stat, info, Tv)
+        finally
+            # Clean up temporary B matrix
+            Destroy_SuperMatrix_Store!(B_mat)
+            # Clean up statistics
+            StatFree!(stat)
         end
+        
+        if info[] != 0
+            if info[] < 0
+                error("SuperLU: illegal argument at position $(abs(info[]))")
+            else
+                error("SuperLU: singular matrix, U($(info[]),$(info[])) is exactly zero")
+            end
+        end
+        
+        F.factorized = true
+        F.symbolic_done = true
+        
+        return F
     end
-    
-    F.factorized = true
-    F.symbolic_done = true
-    
-    return F
 end
 
 """
@@ -212,39 +244,45 @@ end
 
 Solve the linear system using a previously computed LU factorization.
 The solution overwrites `b`.
+
+When using multi-threaded factorization (`nthreads > 1`), BLAS is temporarily
+set to single-threaded mode to avoid thread conflicts with SuperLU_MT.
 """
 function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv}; 
                         trans::trans_t=NOTRANS) where Tv
     !F.factorized && error("Matrix not factorized. Call factorize! first.")
     length(b) != F.n && throw(DimensionMismatch("RHS vector length mismatch"))
     
-    # Create B matrix using type-generic wrapper
-    B_mat = SuperMatrix()
-    dtype = slu_dtype(Tv)
-    Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
-                         SLU_DN, dtype, SLU_GE)
-    
-    # Initialize statistics
-    stat = SuperLUStat_t()
-    StatInit!(stat)
-    
-    # Solve using type-generic wrapper
-    info = Ref{Cint}(0)
-    try
-        gstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
-               B_mat, stat, info, Tv)
-    finally
-        # Clean up temporary B matrix
-        Destroy_SuperMatrix_Store!(B_mat)
-        # Clean up statistics
-        StatFree!(stat)
+    # Use single-threaded BLAS when nthreads > 1 to avoid thread conflicts
+    with_single_threaded_blas(F.nthreads) do
+        # Create B matrix using type-generic wrapper
+        B_mat = SuperMatrix()
+        dtype = slu_dtype(Tv)
+        Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
+                             SLU_DN, dtype, SLU_GE)
+        
+        # Initialize statistics
+        stat = SuperLUStat_t()
+        StatInit!(stat)
+        
+        # Solve using type-generic wrapper
+        info = Ref{Cint}(0)
+        try
+            gstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
+                   B_mat, stat, info, Tv)
+        finally
+            # Clean up temporary B matrix
+            Destroy_SuperMatrix_Store!(B_mat)
+            # Clean up statistics
+            StatFree!(stat)
+        end
+        
+        if info[] != 0
+            error("SuperLU solve failed with info = $(info[])")
+        end
+        
+        return b
     end
-    
-    if info[] != 0
-        error("SuperLU solve failed with info = $(info[])")
-    end
-    
-    return b
 end
 
 """
