@@ -9,7 +9,7 @@ import LinearSolve: LinearCache, AbstractFactorization,
                     LinearVerbosity, OperatorAssumptions
 
 """
-    SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions())
+    SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions(), nthreads::Int = 1)
 
 A LinearSolve.jl compatible factorization algorithm using SuperLU for sparse matrices.
 Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
@@ -20,6 +20,9 @@ Supports Float32, Float64, ComplexF32, and ComplexF64 matrices.
   sparsity pattern. If `false`, a complete factorization is performed each time.
 - `options::SuperLUOptions = SuperLUOptions()`: Solver configuration options.
   See [`SuperLUOptions`](@ref) for available settings.
+- `nthreads::Int = 1`: Number of threads for factorization (default: 1).
+  Currently, only sequential factorization is fully supported.
+  Multi-threaded factorization via SuperLU_MT is experimental.
 
 ## Example
 ```julia
@@ -43,10 +46,11 @@ See also: [`SuperLUOptions`](@ref), [`SuperLUFactorize`](@ref)
 struct SuperLUFactorization <: AbstractFactorization
     reuse_symbolic::Bool
     options::SuperLUOptions
+    nthreads::Int
 end
 
-SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions()) = 
-    SuperLUFactorization(reuse_symbolic, options)
+SuperLUFactorization(; reuse_symbolic::Bool = true, options::SuperLUOptions = SuperLUOptions(), nthreads::Int = 1) = 
+    SuperLUFactorization(reuse_symbolic, options, nthreads)
 
 # Indicate we need a concrete matrix (not lazy representations)
 LinearSolve.needs_concrete_A(::SuperLUFactorization) = true
@@ -60,6 +64,7 @@ mutable struct SuperLUCache{Tv}
     fact::Union{Nothing, SuperLUFactorize{Tv}}
     reuse_symbolic::Bool
     options::SuperLUOptions
+    nthreads::Int
     first_solve::Bool  # Track if this is the first solve after init
 end
 
@@ -71,9 +76,9 @@ function LinearSolve.init_cacheval(alg::SuperLUFactorization,
                                     verbose::Union{Bool, LinearVerbosity},
                                     assumptions::OperatorAssumptions) where {Tv<:SuperLUTypes, Ti<:Integer}
     # Create factorization object and perform initial factorization
-    F = SuperLUFactorize(A; options=alg.options)
+    F = SuperLUFactorize(A; options=alg.options, nthreads=alg.nthreads)
     factorize!(F)
-    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, true)
+    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, alg.nthreads, true)
 end
 
 # Fallback for other matrix types - convert to sparse
@@ -93,9 +98,9 @@ function LinearSolve.do_factorization(alg::SuperLUFactorization,
                                        A::SparseMatrixCSC{Tv, Ti}, 
                                        b, u) where {Tv<:SuperLUTypes, Ti<:Integer}
     # Create new factorization
-    F = SuperLUFactorize(A; options=alg.options)
+    F = SuperLUFactorize(A; options=alg.options, nthreads=alg.nthreads)
     factorize!(F)
-    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, false)
+    return SuperLUCache{Tv}(F, alg.reuse_symbolic, alg.options, alg.nthreads, false)
 end
 
 function LinearSolve.do_factorization(alg::SuperLUFactorization, 
@@ -146,7 +151,7 @@ function SciMLBase.solve!(cache::LinearCache, alg::SuperLUFactorization;
                 factorize!(slu_cache.fact)
             else
                 # Different pattern or no symbolic reuse - create new factorization
-                slu_cache.fact = SuperLUFactorize(A_typed; options=slu_cache.options)
+                slu_cache.fact = SuperLUFactorize(A_typed; options=slu_cache.options, nthreads=slu_cache.nthreads)
                 factorize!(slu_cache.fact)
             end
         end

@@ -16,17 +16,21 @@ for solving linear systems.
 # Fields
 - `n::Int`: Matrix dimension
 - `nnz::Int`: Number of non-zeros
+- `nthreads::Int`: Number of threads (reserved for future multi-threading support)
 - `factorized::Bool`: Whether factorization has been performed
 - `symbolic_done::Bool`: Whether symbolic factorization is complete
 
 # Constructor
-    SuperLUFactorize(A::SparseMatrixCSC{T}; options::SuperLUOptions=SuperLUOptions())
+    SuperLUFactorize(A::SparseMatrixCSC{T}; options::SuperLUOptions=SuperLUOptions(), nthreads::Int=1)
 
 Create a new factorization object for the sparse matrix `A`.
 
 # Arguments
 - `A`: Sparse matrix to factorize (must be square)
 - `options`: Solver options (see [`SuperLUOptions`](@ref))
+- `nthreads`: Number of threads for factorization (default: 1).
+  Currently, only sequential factorization is fully supported.
+  Multi-threaded factorization via SuperLU_MT is experimental.
 
 # Example
 ```julia
@@ -51,6 +55,9 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
     # Original matrix info
     n::Int
     nnz::Int
+    
+    # Threading configuration (reserved for future MT support)
+    nthreads::Int
     
     # SuperLU matrices (mutable structs for C interop)
     A::SuperMatrix
@@ -86,10 +93,17 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
     symbolic_done::Bool
     
     function SuperLUFactorize{Tv}(A::SparseMatrixCSC{Tv, Ti}; 
-                                   options::SuperLUOptions=SuperLUOptions()) where {Tv<:SuperLUTypes, Ti<:Integer}
+                                   options::SuperLUOptions=SuperLUOptions(),
+                                   nthreads::Int=1) where {Tv<:SuperLUTypes, Ti<:Integer}
         n = size(A, 1)
         m = size(A, 2)
         n != m && throw(DimensionMismatch("Matrix must be square"))
+        nthreads < 1 && throw(ArgumentError("nthreads must be at least 1, got $nthreads"))
+        
+        # Warn about multi-threading limitations
+        if nthreads > 1
+            @warn "Multi-threaded factorization (nthreads=$nthreads) is not yet fully implemented. Using sequential factorization. Full SuperLU_MT support is planned for a future release." maxlog=1
+        end
         
         # Convert to 0-based indexing for C
         nzval = copy(A.nzval)
@@ -125,7 +139,7 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
         # Global LU
         Glu = GlobalLU_t()
         
-        new{Tv}(n, nnz, A_mat, L_mat, U_mat, 
+        new{Tv}(n, nnz, nthreads, A_mat, L_mat, U_mat, 
                 perm_c, perm_r, etree, R, C, equed,
                 c_options, options, Glu,
                 nzval, rowind, colptr,
@@ -134,17 +148,17 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
 end
 
 # Constructors for all supported types
-SuperLUFactorize(A::SparseMatrixCSC{Float32, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
-    SuperLUFactorize{Float32}(A; options=options)
+SuperLUFactorize(A::SparseMatrixCSC{Float32, Ti}; options::SuperLUOptions=SuperLUOptions(), nthreads::Int=1) where Ti = 
+    SuperLUFactorize{Float32}(A; options=options, nthreads=nthreads)
 
-SuperLUFactorize(A::SparseMatrixCSC{Float64, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
-    SuperLUFactorize{Float64}(A; options=options)
+SuperLUFactorize(A::SparseMatrixCSC{Float64, Ti}; options::SuperLUOptions=SuperLUOptions(), nthreads::Int=1) where Ti = 
+    SuperLUFactorize{Float64}(A; options=options, nthreads=nthreads)
 
-SuperLUFactorize(A::SparseMatrixCSC{ComplexF32, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
-    SuperLUFactorize{ComplexF32}(A; options=options)
+SuperLUFactorize(A::SparseMatrixCSC{ComplexF32, Ti}; options::SuperLUOptions=SuperLUOptions(), nthreads::Int=1) where Ti = 
+    SuperLUFactorize{ComplexF32}(A; options=options, nthreads=nthreads)
 
-SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=SuperLUOptions()) where Ti = 
-    SuperLUFactorize{ComplexF64}(A; options=options)
+SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=SuperLUOptions(), nthreads::Int=1) where Ti = 
+    SuperLUFactorize{ComplexF64}(A; options=options, nthreads=nthreads)
 
 """
     factorize!(F::SuperLUFactorize)
