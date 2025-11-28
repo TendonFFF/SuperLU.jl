@@ -1,16 +1,19 @@
-# Low-level C wrappers for SuperLU functions
+# Low-level C wrappers for SuperLU_MT functions
 
-# Reference to the SuperLU library
-const libsuperlu = SuperLU_jll.libsuperlu
+# References to the SuperLU_MT libraries (one per data type)
+const libsuperlumts = SuperLU_MT_jll.libsuperlumts  # Float32 (single precision real)
+const libsuperlumtd = SuperLU_MT_jll.libsuperlumtd  # Float64 (double precision real)
+const libsuperlumtc = SuperLU_MT_jll.libsuperlumtc  # ComplexF32 (single precision complex)
+const libsuperlumtz = SuperLU_MT_jll.libsuperlumtz  # ComplexF64 (double precision complex)
 
 # ============================================================================
-# Supported element types for SuperLU
+# Supported element types for SuperLU_MT
 # ============================================================================
 
 """
     SuperLUTypes
 
-Union of all element types supported by SuperLU: Float32, Float64, ComplexF32, ComplexF64.
+Union of all element types supported by SuperLU_MT: Float32, Float64, ComplexF32, ComplexF64.
 
 ## Supported Types
 
@@ -22,22 +25,19 @@ Union of all element types supported by SuperLU: Float32, Float64, ComplexF32, C
   precision is sufficient.
 - `ComplexF64`: Double precision complex. Recommended for most complex-valued problems.
 
-## Performance Considerations
+## Multi-threading Support
 
-- Single precision types (`Float32`, `ComplexF32`) use half the memory and may be 
-  faster on some hardware, but have reduced numerical precision.
-- Double precision types (`Float64`, `ComplexF64`) offer approximately 15-16 significant 
-  digits vs 6-7 for single precision.
-- The choice of precision affects both the factorization and solve phases.
+SuperLU_MT supports parallel LU factorization using multiple threads. The number of 
+threads can be specified when creating a factorization object via the `nthreads` parameter.
 
 ## Example
 
 ```julia
 using SuperLU, SparseArrays
 
-# Float64 (double precision real)
+# Float64 (double precision real) with 4 threads
 A_d = sparse([4.0 1.0; 1.0 4.0])
-F_d = SuperLUFactorize(A_d)
+F_d = SuperLUFactorize(A_d; nthreads=4)
 
 # Float32 (single precision real)  
 A_s = sparse(Float32[4.0 1.0; 1.0 4.0])
@@ -60,28 +60,15 @@ slu_dtype(::Type{Float64}) = SLU_D
 slu_dtype(::Type{ComplexF32}) = SLU_C
 slu_dtype(::Type{ComplexF64}) = SLU_Z
 
-# Set default options - pass the mutable struct directly
-function set_default_options!(options::superlu_options_t)
-    ccall((:set_default_options, libsuperlu), Cvoid,
-          (Ref{superlu_options_t},), options)
-end
+"""
+    libsuperlumt(::Type{T})
 
-function set_default_options()
-    options = superlu_options_t()
-    set_default_options!(options)
-    return options
-end
-
-# Statistics functions
-function StatInit!(stat::SuperLUStat_t)
-    ccall((:StatInit, libsuperlu), Cvoid,
-          (Ref{SuperLUStat_t},), stat)
-end
-
-function StatFree!(stat::SuperLUStat_t)
-    ccall((:StatFree, libsuperlu), Cvoid,
-          (Ref{SuperLUStat_t},), stat)
-end
+Return the appropriate SuperLU_MT library for element type T.
+"""
+libsuperlumt(::Type{Float32}) = libsuperlumts
+libsuperlumt(::Type{Float64}) = libsuperlumtd
+libsuperlumt(::Type{ComplexF32}) = libsuperlumtc
+libsuperlumt(::Type{ComplexF64}) = libsuperlumtz
 
 # ============================================================================
 # Float32 (single precision real) wrappers - prefix 's'
@@ -91,7 +78,7 @@ function sCreate_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
                                   nzval::Ptr{Float32}, rowind::Ptr{Cint}, 
                                   colptr::Ptr{Cint}, stype::Stype_t, 
                                   dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:sCreate_CompCol_Matrix, libsuperlu), Cvoid,
+    ccall((:sCreate_CompCol_Matrix, libsuperlumts), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Cint, Ptr{Float32}, Ptr{Cint}, 
            Ptr{Cint}, Stype_t, Dtype_t, Mtype_t),
           A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
@@ -100,30 +87,23 @@ end
 function sCreate_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint,
                                 nzval::Ptr{Float32}, lda::Cint,
                                 stype::Stype_t, dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:sCreate_Dense_Matrix, libsuperlu), Cvoid,
+    ccall((:sCreate_Dense_Matrix, libsuperlumts), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Ptr{Float32}, Cint, 
            Stype_t, Dtype_t, Mtype_t),
           B, m, n, nzval, lda, stype, dtype, mtype)
 end
 
-function sgssv!(options::superlu_options_t, A::SuperMatrix, 
-                perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                L::SuperMatrix, U::SuperMatrix,
-                B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:sgssv, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, 
-           Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, perm_c, perm_r, L, U, B, stat, info)
-end
-
-function sgstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix,
+# psgssv - Parallel simple driver for Float32
+# Signature: void psgssv(int_t nprocs, SuperMatrix *A, int_t *perm_c, int_t *perm_r,
+#                        SuperMatrix *L, SuperMatrix *U, SuperMatrix *B, int_t *info)
+function psgssv!(nprocs::Cint, A::SuperMatrix, 
                  perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                 B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:sgstrs, libsuperlu), Cvoid,
-          (trans_t, Ref{SuperMatrix}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperLUStat_t}, Ref{Cint}),
-          trans, L, U, perm_c, perm_r, B, stat, info)
+                 L::SuperMatrix, U::SuperMatrix,
+                 B::SuperMatrix, info::Ref{Cint})
+    ccall((:psgssv, libsuperlumts), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
+           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{Cint}),
+          nprocs, A, perm_c, perm_r, L, U, B, info)
 end
 
 # ============================================================================
@@ -134,7 +114,7 @@ function dCreate_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
                                   nzval::Ptr{Float64}, rowind::Ptr{Cint}, 
                                   colptr::Ptr{Cint}, stype::Stype_t, 
                                   dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:dCreate_CompCol_Matrix, libsuperlu), Cvoid,
+    ccall((:dCreate_CompCol_Matrix, libsuperlumtd), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Cint, Ptr{Float64}, Ptr{Cint}, 
            Ptr{Cint}, Stype_t, Dtype_t, Mtype_t),
           A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
@@ -143,30 +123,21 @@ end
 function dCreate_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint,
                                 nzval::Ptr{Float64}, lda::Cint,
                                 stype::Stype_t, dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:dCreate_Dense_Matrix, libsuperlu), Cvoid,
+    ccall((:dCreate_Dense_Matrix, libsuperlumtd), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Ptr{Float64}, Cint, 
            Stype_t, Dtype_t, Mtype_t),
           B, m, n, nzval, lda, stype, dtype, mtype)
 end
 
-function dgssv!(options::superlu_options_t, A::SuperMatrix, 
-                perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                L::SuperMatrix, U::SuperMatrix,
-                B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:dgssv, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, 
-           Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, perm_c, perm_r, L, U, B, stat, info)
-end
-
-function dgstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix,
+# pdgssv - Parallel simple driver for Float64
+function pdgssv!(nprocs::Cint, A::SuperMatrix, 
                  perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                 B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:dgstrs, libsuperlu), Cvoid,
-          (trans_t, Ref{SuperMatrix}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperLUStat_t}, Ref{Cint}),
-          trans, L, U, perm_c, perm_r, B, stat, info)
+                 L::SuperMatrix, U::SuperMatrix,
+                 B::SuperMatrix, info::Ref{Cint})
+    ccall((:pdgssv, libsuperlumtd), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
+           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{Cint}),
+          nprocs, A, perm_c, perm_r, L, U, B, info)
 end
 
 # ============================================================================
@@ -177,7 +148,7 @@ function cCreate_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
                                   nzval::Ptr{ComplexF32}, rowind::Ptr{Cint}, 
                                   colptr::Ptr{Cint}, stype::Stype_t, 
                                   dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:cCreate_CompCol_Matrix, libsuperlu), Cvoid,
+    ccall((:cCreate_CompCol_Matrix, libsuperlumtc), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Cint, Ptr{ComplexF32}, Ptr{Cint}, 
            Ptr{Cint}, Stype_t, Dtype_t, Mtype_t),
           A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
@@ -186,30 +157,21 @@ end
 function cCreate_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint,
                                 nzval::Ptr{ComplexF32}, lda::Cint,
                                 stype::Stype_t, dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:cCreate_Dense_Matrix, libsuperlu), Cvoid,
+    ccall((:cCreate_Dense_Matrix, libsuperlumtc), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Ptr{ComplexF32}, Cint, 
            Stype_t, Dtype_t, Mtype_t),
           B, m, n, nzval, lda, stype, dtype, mtype)
 end
 
-function cgssv!(options::superlu_options_t, A::SuperMatrix, 
-                perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                L::SuperMatrix, U::SuperMatrix,
-                B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:cgssv, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, 
-           Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, perm_c, perm_r, L, U, B, stat, info)
-end
-
-function cgstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix,
+# pcgssv - Parallel simple driver for ComplexF32
+function pcgssv!(nprocs::Cint, A::SuperMatrix, 
                  perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                 B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:cgstrs, libsuperlu), Cvoid,
-          (trans_t, Ref{SuperMatrix}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperLUStat_t}, Ref{Cint}),
-          trans, L, U, perm_c, perm_r, B, stat, info)
+                 L::SuperMatrix, U::SuperMatrix,
+                 B::SuperMatrix, info::Ref{Cint})
+    ccall((:pcgssv, libsuperlumtc), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
+           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{Cint}),
+          nprocs, A, perm_c, perm_r, L, U, B, info)
 end
 
 # ============================================================================
@@ -220,7 +182,7 @@ function zCreate_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
                                   nzval::Ptr{ComplexF64}, rowind::Ptr{Cint}, 
                                   colptr::Ptr{Cint}, stype::Stype_t, 
                                   dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:zCreate_CompCol_Matrix, libsuperlu), Cvoid,
+    ccall((:zCreate_CompCol_Matrix, libsuperlumtz), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Cint, Ptr{ComplexF64}, Ptr{Cint}, 
            Ptr{Cint}, Stype_t, Dtype_t, Mtype_t),
           A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
@@ -229,135 +191,162 @@ end
 function zCreate_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint,
                                 nzval::Ptr{ComplexF64}, lda::Cint,
                                 stype::Stype_t, dtype::Dtype_t, mtype::Mtype_t)
-    ccall((:zCreate_Dense_Matrix, libsuperlu), Cvoid,
+    ccall((:zCreate_Dense_Matrix, libsuperlumtz), Cvoid,
           (Ref{SuperMatrix}, Cint, Cint, Ptr{ComplexF64}, Cint, 
            Stype_t, Dtype_t, Mtype_t),
           B, m, n, nzval, lda, stype, dtype, mtype)
 end
 
+# pzgssv - Parallel simple driver for ComplexF64
+function pzgssv!(nprocs::Cint, A::SuperMatrix, 
+                 perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
+                 L::SuperMatrix, U::SuperMatrix,
+                 B::SuperMatrix, info::Ref{Cint})
+    ccall((:pzgssv, libsuperlumtz), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
+           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{Cint}),
+          nprocs, A, perm_c, perm_r, L, U, B, info)
+end
+
 # ============================================================================
-# Common destroy functions
+# Common destroy functions - type-specific versions
 # ============================================================================
 
-# Destroy matrix store
-function Destroy_SuperMatrix_Store!(A::SuperMatrix)
-    ccall((:Destroy_SuperMatrix_Store, libsuperlu), Cvoid,
+# Float32 versions
+function Destroy_SuperMatrix_Store_s!(A::SuperMatrix)
+    ccall((:Destroy_SuperMatrix_Store, libsuperlumts), Cvoid,
           (Ref{SuperMatrix},), A)
 end
 
-function Destroy_CompCol_Matrix!(A::SuperMatrix)
-    ccall((:Destroy_CompCol_Matrix, libsuperlu), Cvoid,
+function Destroy_CompCol_Matrix_s!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Matrix, libsuperlumts), Cvoid,
           (Ref{SuperMatrix},), A)
 end
 
-function Destroy_CompCol_Permuted!(A::SuperMatrix)
-    ccall((:Destroy_CompCol_Permuted, libsuperlu), Cvoid,
+function Destroy_CompCol_Permuted_s!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Permuted, libsuperlumts), Cvoid,
           (Ref{SuperMatrix},), A)
 end
 
-function Destroy_SuperNode_Matrix!(L::SuperMatrix)
-    ccall((:Destroy_SuperNode_Matrix, libsuperlu), Cvoid,
+function Destroy_SuperNode_Matrix_s!(L::SuperMatrix)
+    ccall((:Destroy_SuperNode_Matrix, libsuperlumts), Cvoid,
           (Ref{SuperMatrix},), L)
 end
 
-function Destroy_Dense_Matrix!(B::SuperMatrix)
-    ccall((:Destroy_Dense_Matrix, libsuperlu), Cvoid,
-          (Ref{SuperMatrix},), B)
+# Float64 versions
+function Destroy_SuperMatrix_Store_d!(A::SuperMatrix)
+    ccall((:Destroy_SuperMatrix_Store, libsuperlumtd), Cvoid,
+          (Ref{SuperMatrix},), A)
 end
 
-# Get column permutation
-function get_perm_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint})
-    ccall((:get_perm_c, libsuperlu), Cvoid,
+function Destroy_CompCol_Matrix_d!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Matrix, libsuperlumtd), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_CompCol_Permuted_d!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Permuted, libsuperlumtd), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_SuperNode_Matrix_d!(L::SuperMatrix)
+    ccall((:Destroy_SuperNode_Matrix, libsuperlumtd), Cvoid,
+          (Ref{SuperMatrix},), L)
+end
+
+# ComplexF32 versions
+function Destroy_SuperMatrix_Store_c!(A::SuperMatrix)
+    ccall((:Destroy_SuperMatrix_Store, libsuperlumtc), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_CompCol_Matrix_c!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Matrix, libsuperlumtc), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_CompCol_Permuted_c!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Permuted, libsuperlumtc), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_SuperNode_Matrix_c!(L::SuperMatrix)
+    ccall((:Destroy_SuperNode_Matrix, libsuperlumtc), Cvoid,
+          (Ref{SuperMatrix},), L)
+end
+
+# ComplexF64 versions
+function Destroy_SuperMatrix_Store_z!(A::SuperMatrix)
+    ccall((:Destroy_SuperMatrix_Store, libsuperlumtz), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_CompCol_Matrix_z!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Matrix, libsuperlumtz), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_CompCol_Permuted_z!(A::SuperMatrix)
+    ccall((:Destroy_CompCol_Permuted, libsuperlumtz), Cvoid,
+          (Ref{SuperMatrix},), A)
+end
+
+function Destroy_SuperNode_Matrix_z!(L::SuperMatrix)
+    ccall((:Destroy_SuperNode_Matrix, libsuperlumtz), Cvoid,
+          (Ref{SuperMatrix},), L)
+end
+
+# Type-dispatch wrappers
+Destroy_SuperMatrix_Store!(A::SuperMatrix, ::Type{Float32}) = Destroy_SuperMatrix_Store_s!(A)
+Destroy_SuperMatrix_Store!(A::SuperMatrix, ::Type{Float64}) = Destroy_SuperMatrix_Store_d!(A)
+Destroy_SuperMatrix_Store!(A::SuperMatrix, ::Type{ComplexF32}) = Destroy_SuperMatrix_Store_c!(A)
+Destroy_SuperMatrix_Store!(A::SuperMatrix, ::Type{ComplexF64}) = Destroy_SuperMatrix_Store_z!(A)
+
+# Default versions using Float64 library
+Destroy_SuperMatrix_Store!(A::SuperMatrix) = Destroy_SuperMatrix_Store_d!(A)
+Destroy_CompCol_Matrix!(A::SuperMatrix) = Destroy_CompCol_Matrix_d!(A)
+Destroy_CompCol_Permuted!(A::SuperMatrix) = Destroy_CompCol_Permuted_d!(A)
+Destroy_SuperNode_Matrix!(L::SuperMatrix) = Destroy_SuperNode_Matrix_d!(L)
+
+# Get column permutation - type-specific versions
+function get_perm_c_s!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint})
+    ccall((:get_perm_c, libsuperlumts), Cvoid,
           (Cint, Ref{SuperMatrix}, Ptr{Cint}),
           ispec, A, perm_c)
 end
 
-# ============================================================================
-# Simple drivers (gssv) for all types
-# ============================================================================
-
-# Simple driver for complex double (zgssv) - keep for backward compatibility
-function zgssv!(options::superlu_options_t, A::SuperMatrix, 
-                perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                L::SuperMatrix, U::SuperMatrix,
-                B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:zgssv, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{SuperMatrix}, 
-           Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, perm_c, perm_r, L, U, B, stat, info)
+function get_perm_c_d!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint})
+    ccall((:get_perm_c, libsuperlumtd), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}),
+          ispec, A, perm_c)
 end
 
-# ============================================================================
-# Expert drivers (gssvx) for all types
-# ============================================================================
-
-# Expert driver for complex double (zgssvx)
-function zgssvx!(options::superlu_options_t, A::SuperMatrix,
-                 perm_c::Ptr{Cint}, perm_r::Ptr{Cint}, etree::Ptr{Cint},
-                 equed::Ptr{Cchar}, R::Ptr{Cdouble}, C::Ptr{Cdouble},
-                 L::SuperMatrix, U::SuperMatrix,
-                 work::Ptr{Cvoid}, lwork::Cint,
-                 B::SuperMatrix, X::SuperMatrix,
-                 recip_pivot_growth::Ref{Cdouble}, rcond::Ref{Cdouble},
-                 ferr::Ptr{Cdouble}, berr::Ptr{Cdouble},
-                 Glu::GlobalLU_t,
-                 mem_usage::mem_usage_t, stat::SuperLUStat_t, 
-                 info::Ref{Cint})
-    ccall((:zgssvx, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ptr{Cint}, Ptr{Cchar}, Ptr{Cdouble}, Ptr{Cdouble},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ptr{Cvoid}, Cint,
-           Ref{SuperMatrix}, Ref{SuperMatrix}, 
-           Ref{Cdouble}, Ref{Cdouble}, Ptr{Cdouble}, Ptr{Cdouble},
-           Ref{GlobalLU_t}, Ref{mem_usage_t}, Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, perm_c, perm_r, etree, equed, R, C,
-          L, U, work, lwork, B, X, 
-          recip_pivot_growth, rcond, ferr, berr, Glu, mem_usage, stat, info)
+function get_perm_c_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint})
+    ccall((:get_perm_c, libsuperlumtc), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}),
+          ispec, A, perm_c)
 end
 
-# ============================================================================
-# Symbolic factorization (gstrf) for all types
-# ============================================================================
-
-function zgstrf!(options::superlu_options_t, A::SuperMatrix,
-                 relax::Cint, panel_size::Cint, 
-                 etree::Ptr{Cint}, work::Ptr{Cvoid}, lwork::Cint,
-                 perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                 L::SuperMatrix, U::SuperMatrix,
-                 Glu::GlobalLU_t,
-                 stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:zgstrf, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Cint, Cint,
-           Ptr{Cint}, Ptr{Cvoid}, Cint, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperMatrix}, Ref{GlobalLU_t},
-           Ref{SuperLUStat_t}, Ref{Cint}),
-          options, A, relax, panel_size, etree, work, lwork,
-          perm_c, perm_r, L, U, Glu, stat, info)
+function get_perm_c_z!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint})
+    ccall((:get_perm_c, libsuperlumtz), Cvoid,
+          (Cint, Ref{SuperMatrix}, Ptr{Cint}),
+          ispec, A, perm_c)
 end
 
-# ============================================================================
-# Triangular solves (gstrs) for all types
-# ============================================================================
-
-# Triangular solve for complex double (zgstrs) - keep for backward compatibility
-function zgstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix,
-                 perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-                 B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint})
-    ccall((:zgstrs, libsuperlu), Cvoid,
-          (trans_t, Ref{SuperMatrix}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint},
-           Ref{SuperMatrix}, Ref{SuperLUStat_t}, Ref{Cint}),
-          trans, L, U, perm_c, perm_r, B, stat, info)
-end
+# Type-dispatch wrapper
+get_perm_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, ::Type{Float32}) = get_perm_c_s!(ispec, A, perm_c)
+get_perm_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, ::Type{Float64}) = get_perm_c_d!(ispec, A, perm_c)
+get_perm_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, ::Type{ComplexF32}) = get_perm_c_c!(ispec, A, perm_c)
+get_perm_c!(ispec::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, ::Type{ComplexF64}) = get_perm_c_z!(ispec, A, perm_c)
 
 # ============================================================================
 # Type-generic wrappers using dispatch
 # ============================================================================
 
 """
-    Create_CompCol_Matrix!(A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype, ::Type{T})
+    Create_CompCol_Matrix!(A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
 
-Create a compressed column matrix for element type T.
+Create a compressed column matrix. Dispatches to the correct library based on nzval pointer type.
 """
 Create_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
                        nzval::Ptr{Float32}, rowind::Ptr{Cint}, colptr::Ptr{Cint},
@@ -380,9 +369,9 @@ Create_CompCol_Matrix!(A::SuperMatrix, m::Cint, n::Cint, nnz::Cint,
     zCreate_CompCol_Matrix!(A, m, n, nnz, nzval, rowind, colptr, stype, dtype, mtype)
 
 """
-    Create_Dense_Matrix!(B, m, n, nzval, lda, stype, dtype, mtype, ::Type{T})
+    Create_Dense_Matrix!(B, m, n, nzval, lda, stype, dtype, mtype)
 
-Create a dense matrix for element type T.
+Create a dense matrix. Dispatches to the correct library based on nzval pointer type.
 """
 Create_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint, nzval::Ptr{Float32}, lda::Cint,
                      stype::Stype_t, dtype::Dtype_t, mtype::Mtype_t) =
@@ -401,63 +390,35 @@ Create_Dense_Matrix!(B::SuperMatrix, m::Cint, n::Cint, nzval::Ptr{ComplexF64}, l
     zCreate_Dense_Matrix!(B, m, n, nzval, lda, stype, dtype, mtype)
 
 """
-    gssv!(options, A, perm_c, perm_r, L, U, B, stat, info, ::Type{T})
+    pgssv!(nprocs, A, perm_c, perm_r, L, U, B, info, ::Type{T})
 
-Simple driver for LU factorization and solve for element type T.
+Parallel simple driver for LU factorization and solve for element type T.
 """
-gssv!(options::superlu_options_t, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-      L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, stat::SuperLUStat_t, 
-      info::Ref{Cint}, ::Type{Float32}) =
-    sgssv!(options, A, perm_c, perm_r, L, U, B, stat, info)
+pgssv!(nprocs::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
+       L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, 
+       info::Ref{Cint}, ::Type{Float32}) =
+    psgssv!(nprocs, A, perm_c, perm_r, L, U, B, info)
 
-gssv!(options::superlu_options_t, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-      L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, stat::SuperLUStat_t, 
-      info::Ref{Cint}, ::Type{Float64}) =
-    dgssv!(options, A, perm_c, perm_r, L, U, B, stat, info)
+pgssv!(nprocs::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
+       L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, 
+       info::Ref{Cint}, ::Type{Float64}) =
+    pdgssv!(nprocs, A, perm_c, perm_r, L, U, B, info)
 
-gssv!(options::superlu_options_t, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-      L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, stat::SuperLUStat_t, 
-      info::Ref{Cint}, ::Type{ComplexF32}) =
-    cgssv!(options, A, perm_c, perm_r, L, U, B, stat, info)
+pgssv!(nprocs::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
+       L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, 
+       info::Ref{Cint}, ::Type{ComplexF32}) =
+    pcgssv!(nprocs, A, perm_c, perm_r, L, U, B, info)
 
-gssv!(options::superlu_options_t, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-      L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, stat::SuperLUStat_t, 
-      info::Ref{Cint}, ::Type{ComplexF64}) =
-    zgssv!(options, A, perm_c, perm_r, L, U, B, stat, info)
+pgssv!(nprocs::Cint, A::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
+       L::SuperMatrix, U::SuperMatrix, B::SuperMatrix, 
+       info::Ref{Cint}, ::Type{ComplexF64}) =
+    pzgssv!(nprocs, A, perm_c, perm_r, L, U, B, info)
 
-"""
-    gstrs!(trans, L, U, perm_c, perm_r, B, stat, info, ::Type{T})
+# Get default relax and panel_size - type-specific versions
+sp_ienv_s(ispec::Cint) = ccall((:sp_ienv, libsuperlumts), Cint, (Cint,), ispec)
+sp_ienv_d(ispec::Cint) = ccall((:sp_ienv, libsuperlumtd), Cint, (Cint,), ispec)
+sp_ienv_c(ispec::Cint) = ccall((:sp_ienv, libsuperlumtc), Cint, (Cint,), ispec)
+sp_ienv_z(ispec::Cint) = ccall((:sp_ienv, libsuperlumtz), Cint, (Cint,), ispec)
 
-Triangular solve for element type T.
-"""
-gstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-       B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint}, ::Type{Float32}) =
-    sgstrs!(trans, L, U, perm_c, perm_r, B, stat, info)
-
-gstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-       B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint}, ::Type{Float64}) =
-    dgstrs!(trans, L, U, perm_c, perm_r, B, stat, info)
-
-gstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-       B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint}, ::Type{ComplexF32}) =
-    cgstrs!(trans, L, U, perm_c, perm_r, B, stat, info)
-
-gstrs!(trans::trans_t, L::SuperMatrix, U::SuperMatrix, perm_c::Ptr{Cint}, perm_r::Ptr{Cint},
-       B::SuperMatrix, stat::SuperLUStat_t, info::Ref{Cint}, ::Type{ComplexF64}) =
-    zgstrs!(trans, L, U, perm_c, perm_r, B, stat, info)
-
-# ============================================================================
-# Permutation for preprocessing
-# ============================================================================
-
-function sp_preorder!(options::superlu_options_t, A::SuperMatrix,
-                      perm_c::Ptr{Cint}, etree::Ptr{Cint}, AC::SuperMatrix)
-    ccall((:sp_preorder, libsuperlu), Cvoid,
-          (Ref{superlu_options_t}, Ref{SuperMatrix}, Ptr{Cint}, Ptr{Cint}, Ref{SuperMatrix}),
-          options, A, perm_c, etree, AC)
-end
-
-# Get default relax and panel_size
-function sp_ienv(ispec::Cint)
-    ccall((:sp_ienv, libsuperlu), Cint, (Cint,), ispec)
-end
+# Default version using Float64 library
+sp_ienv(ispec::Cint) = sp_ienv_d(ispec)

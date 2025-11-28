@@ -1,9 +1,9 @@
-# High-level Julia interface for SuperLU
+# High-level Julia interface for SuperLU_MT
 
 """
     SuperLUFactorize
 
-A mutable struct that holds the LU factorization of a sparse matrix using SuperLU.
+A mutable struct that holds the LU factorization of a sparse matrix using SuperLU_MT.
 This includes the L and U factors, permutation vectors, and other data needed
 for solving linear systems.
 
@@ -16,7 +16,7 @@ for solving linear systems.
 # Fields
 - `n::Int`: Matrix dimension
 - `nnz::Int`: Number of non-zeros
-- `nthreads::Int`: Number of threads (reserved for future multi-threading support)
+- `nthreads::Int`: Number of threads for parallel factorization
 - `factorized::Bool`: Whether factorization has been performed
 - `symbolic_done::Bool`: Whether symbolic factorization is complete
 
@@ -28,17 +28,16 @@ Create a new factorization object for the sparse matrix `A`.
 # Arguments
 - `A`: Sparse matrix to factorize (must be square)
 - `options`: Solver options (see [`SuperLUOptions`](@ref))
-- `nthreads`: Number of threads for factorization (default: 1).
-  Currently, only sequential factorization is fully supported.
-  Multi-threaded factorization via SuperLU_MT is experimental.
+- `nthreads`: Number of threads for parallel factorization (default: 1).
+  SuperLU_MT supports multi-threaded LU factorization.
 
 # Example
 ```julia
 using SuperLU, SparseArrays
 
-# Complex double precision
+# Complex double precision with 4 threads
 A = sparse([1.0+1.0im 2.0+0im; 3.0-1.0im 4.0+2.0im])
-F = SuperLUFactorize(A)
+F = SuperLUFactorize(A; nthreads=4)
 factorize!(F)
 x = superlu_solve(F, [1.0+0im, 2.0+1.0im])
 
@@ -56,7 +55,7 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
     n::Int
     nnz::Int
     
-    # Threading configuration (reserved for future MT support)
+    # Threading configuration
     nthreads::Int
     
     # SuperLU matrices (mutable structs for C interop)
@@ -75,7 +74,7 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
     equed::Vector{Cchar}
     
     # Options
-    options::superlu_options_t
+    options::superlumt_options_t
     
     # User options (for reference)
     user_options::SuperLUOptions
@@ -100,11 +99,6 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
         n != m && throw(DimensionMismatch("Matrix must be square"))
         nthreads < 1 && throw(ArgumentError("nthreads must be at least 1, got $nthreads"))
         
-        # Warn about multi-threading limitations
-        if nthreads > 1
-            @warn "Multi-threaded factorization (nthreads=$nthreads) is not yet fully implemented. Using sequential factorization. Full SuperLU_MT support is planned for a future release." maxlog=1
-        end
-        
         # Convert to 0-based indexing for C
         nzval = copy(A.nzval)
         rowind = Vector{Cint}(A.rowval .- 1)
@@ -122,8 +116,9 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
         L_mat = SuperMatrix()
         U_mat = SuperMatrix()
         
-        # Allocate permutation arrays
-        perm_c = zeros(Cint, n)
+        # Allocate permutation arrays - initialize perm_c with natural ordering (0, 1, 2, ..., n-1)
+        # This is required by SuperLU_MT's pdgssv driver
+        perm_c = Cint.(0:n-1)
         perm_r = zeros(Cint, n)
         etree = zeros(Cint, n)
         
@@ -132,9 +127,9 @@ mutable struct SuperLUFactorize{Tv<:SuperLUTypes}
         C = ones(Cdouble, n)
         equed = Cchar['N']
         
-        # Set default options and apply user options
-        c_options = set_default_options()
-        apply_options!(c_options, options)
+        # Create options struct and apply user options
+        c_options = superlumt_options_t()
+        apply_options!(c_options, options, nthreads)
         
         # Global LU
         Glu = GlobalLU_t()
@@ -163,41 +158,33 @@ SuperLUFactorize(A::SparseMatrixCSC{ComplexF64, Ti}; options::SuperLUOptions=Sup
 """
     factorize!(F::SuperLUFactorize)
 
-Perform LU factorization using SuperLU.
+Perform LU factorization using SuperLU_MT.
+Uses parallel factorization with the number of threads specified during construction.
 """
 function factorize!(F::SuperLUFactorize{Tv}) where Tv
-    # Initialize statistics
-    stat = SuperLUStat_t()
-    StatInit!(stat)
-    
-    # Set options - always do full factorization with simple driver
-    F.options.Fact = DOFACT
-    F.options.PrintStat = NO  # Disable printing
-    
-    # Create dummy B matrix for gssv (we only want factorization)
+    # Create dummy B matrix for pgssv (we need a RHS for the simple driver)
+    # The simple driver pgssv does factorization and solve together
     x = zeros(Tv, F.n)
     B_mat = SuperMatrix()
     dtype = slu_dtype(Tv)
     Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(x), Cint(F.n),
                          SLU_DN, dtype, SLU_GE)
     
-    # Perform factorization using type-generic wrapper
+    # Perform factorization using type-generic parallel wrapper
     info = Ref{Cint}(0)
     try
-        gssv!(F.options, F.A, pointer(F.perm_c), pointer(F.perm_r),
-              F.L, F.U, B_mat, stat, info, Tv)
+        pgssv!(Cint(F.nthreads), F.A, pointer(F.perm_c), pointer(F.perm_r),
+               F.L, F.U, B_mat, info, Tv)
     finally
-        # Clean up temporary B matrix
-        Destroy_SuperMatrix_Store!(B_mat)
-        # Clean up statistics
-        StatFree!(stat)
+        # Clean up temporary B matrix using type-dispatch
+        Destroy_SuperMatrix_Store!(B_mat, Tv)
     end
     
     if info[] != 0
         if info[] < 0
-            error("SuperLU: illegal argument at position $(abs(info[]))")
+            error("SuperLU_MT: illegal argument at position $(abs(info[]))")
         else
-            error("SuperLU: singular matrix, U($(info[]),$(info[])) is exactly zero")
+            error("SuperLU_MT: singular matrix, U($(info[]),$(info[])) is exactly zero")
         end
     end
     
@@ -212,11 +199,20 @@ end
 
 Solve the linear system using a previously computed LU factorization.
 The solution overwrites `b`.
+
+Note: SuperLU_MT's simple driver (pgssv) combines factorization and solve in a single call.
+When called after factorize!(), this function will re-factorize the matrix before solving.
+For optimal performance with multiple right-hand sides, solve them in a single batch or
+use the expert driver API directly.
 """
 function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv}; 
                         trans::trans_t=NOTRANS) where Tv
     !F.factorized && error("Matrix not factorized. Call factorize! first.")
     length(b) != F.n && throw(DimensionMismatch("RHS vector length mismatch"))
+    
+    if trans != NOTRANS
+        @warn "SuperLU_MT simple driver (pgssv) only supports NOTRANS. Transpose solve is not supported." maxlog=1
+    end
     
     # Create B matrix using type-generic wrapper
     B_mat = SuperMatrix()
@@ -224,24 +220,24 @@ function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv};
     Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
                          SLU_DN, dtype, SLU_GE)
     
-    # Initialize statistics
-    stat = SuperLUStat_t()
-    StatInit!(stat)
+    # Reset L and U for fresh factorization+solve
+    # pgssv always performs factorization and solve together
+    F.L = SuperMatrix()
+    F.U = SuperMatrix()
     
-    # Solve using type-generic wrapper
     info = Ref{Cint}(0)
+    
     try
-        gstrs!(trans, F.L, F.U, pointer(F.perm_c), pointer(F.perm_r),
-               B_mat, stat, info, Tv)
+        # pgssv performs factorization and solve in one call
+        pgssv!(Cint(F.nthreads), F.A, pointer(F.perm_c), pointer(F.perm_r),
+               F.L, F.U, B_mat, info, Tv)
     finally
-        # Clean up temporary B matrix
-        Destroy_SuperMatrix_Store!(B_mat)
-        # Clean up statistics
-        StatFree!(stat)
+        # Clean up temporary B matrix using type-dispatch
+        Destroy_SuperMatrix_Store!(B_mat, Tv)
     end
     
     if info[] != 0
-        error("SuperLU solve failed with info = $(info[])")
+        error("SuperLU_MT solve failed with info = $(info[])")
     end
     
     return b
@@ -292,8 +288,10 @@ function update_matrix!(F::SuperLUFactorize{Tv}, A::SparseMatrixCSC{Tv, Ti}) whe
     F.L = SuperMatrix()
     F.U = SuperMatrix()
     
-    # Reset permutation arrays
-    fill!(F.perm_c, 0)
+    # Reset permutation arrays - initialize perm_c with natural ordering
+    for i in 1:F.n
+        F.perm_c[i] = Cint(i - 1)
+    end
     fill!(F.perm_r, 0)
     fill!(F.etree, 0)
     
