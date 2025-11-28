@@ -496,7 +496,7 @@ end
     using LinearAlgebra
     
     # Create a larger sparse system for timing comparison
-    n = 80000
+    n = 60000
     # Create a sparse banded matrix
     A = sprand(n, n, 1/n) + I
     # A = spdiagm(-5 => fill(-0.2, n-5),
