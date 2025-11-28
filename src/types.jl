@@ -413,7 +413,7 @@ Equivalent to:
 ```julia
 SuperLUOptions(
     col_perm = COLAMD,
-    diag_pivot_thresh = 0.0  # No partial pivoting
+    diag_pivot_thresh = 1.0  # Full partial pivoting for stability
 )
 ```
 
@@ -421,7 +421,7 @@ See also: [`SuperLUOptions`](@ref), [`ILL_CONDITIONED_OPTIONS`](@ref), [`ACCURAC
 """
 const PERFORMANCE_OPTIONS = SuperLUOptions(
     col_perm = COLAMD,
-    diag_pivot_thresh = 0.0
+    diag_pivot_thresh = 1.0
 )
 
 """

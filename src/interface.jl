@@ -200,9 +200,10 @@ end
 Solve the linear system using a previously computed LU factorization.
 The solution overwrites `b`.
 
-Note: SuperLU_MT's simple driver (pgssv) performs factorization and solve together.
-For repeated solves with the same factorization, we call pgssv again with the 
-already factorized L and U.
+Note: SuperLU_MT's simple driver (pgssv) combines factorization and solve in a single call.
+When called after factorize!(), this function will re-factorize the matrix before solving.
+For optimal performance with multiple right-hand sides, solve them in a single batch or
+use the expert driver API directly.
 """
 function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv}; 
                         trans::trans_t=NOTRANS) where Tv
@@ -219,13 +220,15 @@ function superlu_solve!(F::SuperLUFactorize{Tv}, b::AbstractVector{Tv};
     Create_Dense_Matrix!(B_mat, Cint(F.n), Cint(1), pointer(b), Cint(F.n),
                          SLU_DN, dtype, SLU_GE)
     
-    # Solve using the simple driver again - it will use the existing L and U
-    # Note: pgssv with already factorized L, U will just do the solve phase
+    # Reset L and U for fresh factorization+solve
+    # pgssv always performs factorization and solve together
+    F.L = SuperMatrix()
+    F.U = SuperMatrix()
+    
     info = Ref{Cint}(0)
     
     try
-        # For solve, we use the existing factorization
-        # We need to call pgssv again with the existing L and U
+        # pgssv performs factorization and solve in one call
         pgssv!(Cint(F.nthreads), F.A, pointer(F.perm_c), pointer(F.perm_r),
                F.L, F.U, B_mat, info, Tv)
     finally

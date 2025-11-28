@@ -336,7 +336,7 @@ end
     
     # Test PERFORMANCE_OPTIONS
     @test PERFORMANCE_OPTIONS.col_perm == COLAMD
-    @test PERFORMANCE_OPTIONS.diag_pivot_thresh == 0.0
+    @test PERFORMANCE_OPTIONS.diag_pivot_thresh == 1.0
     
     F2 = SuperLU.SuperLUFactorize(A; options=PERFORMANCE_OPTIONS)
     SuperLU.factorize!(F2)
