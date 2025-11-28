@@ -13,7 +13,7 @@ SuperLU_MT_jll = "00982de7-9f76-5194-84e1-476c61fcc171"
 
 [compat]
 LinearSolve = "3"
-OpenBLAS32_jll = "0.3.9 - 0.3"
+OpenBLAS32_jll = "0.3.9 - 0.3.99"
 SciMLBase = "2"
 SuperLU_MT_jll = "3.1.0"
 julia = "1.10"
