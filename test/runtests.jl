@@ -496,7 +496,7 @@ end
     using LinearAlgebra
     
     # Create a larger sparse system for timing comparison
-    n = 5000
+    n = 50000
     # Create a sparse banded matrix
     A = spdiagm(-5 => fill(-0.2, n-5),
                 -2 => fill(-0.5, n-2),
@@ -522,7 +522,7 @@ end
     end
     
     # Time with multiple threads (use available threads, at least 2)
-    nthreads = 4#max(2, min(4, Threads.nthreads()))
+    nthreads = 4
     t_mt = @elapsed begin
         for _ in 1:3
             F = SuperLU.SuperLUFactorize(A; nthreads=nthreads)
